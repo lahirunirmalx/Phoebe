@@ -4,7 +4,6 @@ var myWidgets = {
   bigTime: -1,
   bigDate: -1,
   sideStatus: -1,
-  steps: -1,
   clock: -1,
 };
 
@@ -42,14 +41,6 @@ function wf_on_create() {
     widget.setLabelTextColor(tempId, "#000000");
     widget.setLabelText(tempId, "DATE: 2024.10.26 BAT: 96%");
     myWidgets.sideStatus = tempId;
-
-    tempId = widget.create("label");
-    widget.setPos(tempId, 32, 3);
-    widget.setRotation(tempId, 900);
-    widget.setLabelFont(tempId, "RajdhaniBold16");
-    widget.setLabelTextColor(tempId, "#FFFFFF");
-    widget.setLabelText(tempId, "SETPS: 2333.");
-    myWidgets.steps = tempId;
 
     tempId = widget.create("clock");
     widget.setClockStyle(
@@ -94,8 +85,6 @@ function wf_on_tick() {
       "BAT: " + hal.battery.percent().toFixed() + "% " + hal.battery.state();
 
     widget.setLabelText(myWidgets.sideStatus, sideStatusText);
-    hal.imu.update();
-    widget.setLabelText(myWidgets.steps, "STEPS: " + hal.imu.getData().steps);
 
     widget.updateClock(myWidgets.clock);
   } catch (e) {

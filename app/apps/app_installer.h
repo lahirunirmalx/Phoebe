@@ -14,8 +14,7 @@
 #include "app_template/app_template.h"
 #include "app_test_clock/app_test_clock.h"
 #include "app_test_demo/app_test_demo.h"
-#include "app_launcher/app_launcher.h"
-#include "app_ble_manager/app_ble_manager.h"
+#include "app_claudemeter/app_claudemeter.h"
 /* Header files locator (Don't remove) */
 
 /**
@@ -30,7 +29,6 @@ inline void on_install_apps()
     // mooncake::GetMooncake().installApp(std::make_unique<AppTemplate>());
     // mooncake::GetMooncake().installApp(std::make_unique<AppTestClock>());
     // mooncake::GetMooncake().installApp(std::make_unique<AppTestDemo>());
-    mooncake::GetMooncake().installApp(std::make_unique<AppLauncher>());
-    mooncake::GetMooncake().installApp(std::make_unique<AppBleManager>());
+    mooncake::GetMooncake().installApp(std::make_unique<AppClaudeMeter>());
     /* Install app locator (Don't remove) */
 }

@@ -142,3 +142,12 @@ hal_components::BleBase& HAL::HalBase::Ble()
     }
     return *_components.ble.get();
 }
+
+hal_components::WifiManagerBase& HAL::HalBase::Wifi()
+{
+    if (!_components.wifi) {
+        mclog::tagWarn(_tag, "getting null wifi component");
+        _components.wifi = std::make_unique<hal_components::WifiManagerBase>();
+    }
+    return *_components.wifi.get();
+}

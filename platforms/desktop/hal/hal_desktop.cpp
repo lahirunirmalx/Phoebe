@@ -15,6 +15,7 @@
 #include "components/button_sdl/button_sdl.h"
 #include "components/display/display.h"
 #include "components/ble/ble.h"
+#include "components/wifi_manager_std/wifi_manager_std.h"
 #include <memory>
 #include <mooncake_log.h>
 #include <lvgl.h>
@@ -31,6 +32,14 @@ void HalDesktop::init()
     _components.display->init();
     _components.ble = std::make_unique<BlePython>();
     _components.ble->init();
+
+    // WiFi manager (desktop simulation) -- persists SSID/password to a JSON file.
+    _components.wifi = std::make_unique<WifiManagerStd>();
+    _components.wifi->load();
+    if (_components.wifi->hasCredentials()) {
+        _components.wifi->connect();
+    }
+    _components.wifi->logState();
 
     // Desktop has no real IMU / buzzer / haptic / battery hardware --
     // pre-inject the base stubs so accessors don't lazily allocate and log warnings.
