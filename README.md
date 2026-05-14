@@ -13,11 +13,13 @@ Going open source — feel free to compile and play around if you're interested.
 
 ## Desktop build
 
-Fetch dependencies:
+Fetch dependencies (submodules):
 
 ```bash
-python fetch_repos.py
+git submodule update --init --recursive
 ```
+
+If you cloned without `--recurse-submodules`, the command above pulls in everything under `dependencies/`.
 
 Build:
 
