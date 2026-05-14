@@ -1,18 +1,23 @@
 [submodule "dependencies/mooncake"]
 	path = dependencies/mooncake
 	url = https://github.com/Forairaaaaa/mooncake.git
+	branch = v2.1.0
 [submodule "dependencies/mooncake_log"]
 	path = dependencies/mooncake_log
 	url = https://github.com/Forairaaaaa/mooncake_log.git
+	branch = v1.0.0
 [submodule "dependencies/lvgl"]
 	path = dependencies/lvgl
 	url = https://github.com/lvgl/lvgl.git
+	branch = v9.2.0
 [submodule "dependencies/ArduinoJson"]
 	path = dependencies/ArduinoJson
 	url = https://github.com/bblanchon/ArduinoJson.git
+	branch = v7.2.0
 [submodule "dependencies/smooth_ui_toolkit"]
 	path = dependencies/smooth_ui_toolkit
 	url = https://github.com/Forairaaaaa/smooth_ui_toolkit.git
+	branch = v1.1.2
 [submodule "dependencies/lgfx_slim"]
 	path = dependencies/lgfx_slim
 	url = https://github.com/Forairaaaaa/lgfx_slim.git
