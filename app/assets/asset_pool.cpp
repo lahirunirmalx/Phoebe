@@ -13,7 +13,7 @@
 
 void AssetPool::on_asset_pool_init(AssetPool_t& assetPool)
 {
-    // 在这里初始化静态资源
+    // Initialize static resources here
     assetPool.Font.RajdhaniBold16 = &ui_font_RajdhaniBold16;
     assetPool.Font.RajdhaniBold24 = &ui_font_RajdhaniBold24;
     assetPool.Font.RajdhaniBold36 = &ui_font_RajdhaniBold36;

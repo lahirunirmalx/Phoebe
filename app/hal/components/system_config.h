@@ -14,13 +14,13 @@
 namespace hal_components {
 
 /**
- * @brief 系统配置组件基类
+ * @brief System config component base class
  *
  */
 class SystemConfigBase {
 public:
     struct Config_t {
-        // 想要保存的配置
+        // Configuration values to persist
         bool mute = false;
         bool hapticFeedback = true;
         std::string watchFace;
@@ -31,7 +31,7 @@ public:
     ~SystemConfigBase() = default;
 
     /**
-     * @brief 从文件系统加载配置
+     * @brief Load config from the file system
      *
      * @return true
      * @return false
@@ -42,7 +42,7 @@ public:
     }
 
     /**
-     * @brief 把配置保存到文件系统
+     * @brief Save config to the file system
      *
      * @return true
      * @return false
@@ -53,7 +53,7 @@ public:
     }
 
     /**
-     * @brief 获取当前系统配置
+     * @brief Get the current system config
      *
      * @return const Config_t&
      */
@@ -63,7 +63,7 @@ public:
     }
 
     /**
-     * @brief 设置当前系统配置
+     * @brief Set the current system config
      *
      * @return Config_t&
      */
@@ -73,7 +73,7 @@ public:
     }
 
     /**
-     * @brief 应用当前系统配置
+     * @brief Apply the current system config
      *
      * @return true
      * @return false
@@ -84,7 +84,7 @@ public:
     }
 
     /**
-     * @brief Log 出来看看
+     * @brief Log the config for inspection
      *
      */
     virtual void logConfig() {}

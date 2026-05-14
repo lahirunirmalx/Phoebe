@@ -16,7 +16,7 @@
 
 static const char* _tag = "SysCtrl";
 
-// 看门狗线程
+// Watchdog thread
 static uint8_t _dog = 0;
 static std::mutex _feed_mutex;
 static void _daemon_watch_dog(void* param)
@@ -41,12 +41,12 @@ void SystemControlArduino::init()
 {
     mclog::tagInfo(_tag, "init");
 
-    // 锁定电源 MOS 管
+    // Latch the power MOSFET
     mclog::tagInfo(_tag, "lock power mos");
     pinMode(HAL_PIN_PWR_HOLD, OUTPUT);
     digitalWrite(HAL_PIN_PWR_HOLD, 1);
 
-    // 创建看门狗线程
+    // Create watchdog thread
     mclog::tagInfo(_tag, "create watch dog deamon");
     xTaskCreate(_daemon_watch_dog, "wd", 2000, NULL, configMAX_PRIORITIES - 1, NULL);
 }
@@ -72,7 +72,7 @@ void SystemControlArduino::powerOff()
     mclog::tagInfo(_tag, "power off..");
     delay(100);
 
-    // 释放电源 mos 管
+    // Release the power MOSFET
     digitalWrite(HAL_PIN_PWR_HOLD, 0);
     delay(114514);
 }

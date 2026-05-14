@@ -15,7 +15,7 @@
 namespace hal_components {
 
 /**
- * @brief 系统操作组件基类
+ * @brief System control component base class
  *
  */
 class SystemControlBase {
@@ -23,20 +23,20 @@ public:
     ~SystemControlBase() = default;
 
     /**
-     * @brief 初始化
+     * @brief Initialize
      *
      */
     virtual void init() {}
 
     /**
-     * @brief 睡眠当前线程
+     * @brief Sleep the current thread
      *
      * @param ms
      */
     virtual void delay(std::uint32_t ms) {}
 
     /**
-     * @brief 获取当前系统运行毫秒数
+     * @brief Get the current system uptime in milliseconds
      *
      * @return std::uint32_t
      */
@@ -46,19 +46,19 @@ public:
     }
 
     /**
-     * @brief 重启
+     * @brief Reboot
      *
      */
     virtual void reboot() {}
 
     /**
-     * @brief 关机
+     * @brief Power off
      *
      */
     virtual void powerOff() {}
 
     /**
-     * @brief 重置系统看门狗
+     * @brief Feed the system watchdog
      *
      */
     virtual void feedTheDog() {}

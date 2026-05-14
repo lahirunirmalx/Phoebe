@@ -11,7 +11,7 @@
 #pragma once
 #include <hal/hal.h>
 
-// SDL 实现
+// SDL implementation
 class SystemControlSdl : public hal_components::SystemControlBase {
 public:
     std::uint32_t millis() override;

@@ -14,7 +14,7 @@
 #include <mutex>
 
 /**
- * @brief Daemon 管理器，方便线程控制和数据交换
+ * @brief Daemon manager that simplifies thread control and data exchange
  *
  */
 class DaemonController_t {

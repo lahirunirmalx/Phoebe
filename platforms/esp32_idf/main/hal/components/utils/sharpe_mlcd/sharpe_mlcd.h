@@ -45,7 +45,7 @@ public:
 
 private:
     Config_t _config;
-    // 下边d野用亲 unique 指针就会炸，唔7知点嗨解，傻嗨 idf
+    // The stuff below explodes whenever a unique_ptr is used; no idea why, stupid IDF
     SPISettings* _spi_settings = nullptr;
     uint8_t* _sharpmem_buffer = nullptr;
     uint8_t _sharpmem_vcom = 0;

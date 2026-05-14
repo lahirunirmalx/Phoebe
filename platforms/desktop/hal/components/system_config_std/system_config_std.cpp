@@ -26,17 +26,17 @@ bool SystemConfigStd::loadConfig()
 {
     mclog::tagInfo(_tag, "load config from fs");
 
-    // 打开配置文件
+    // Open config file
     FILE* config_file = fopen(_system_config_path.c_str(), "rb");
     if (config_file == NULL) {
-        // 如果没有，新建一个
+        // If it does not exist, create a new one
         mclog::warn("{} not exist, try creating", _system_config_path);
         saveConfig();
         backup_config_file();
         return true;
     }
 
-    // 读取文件内容
+    // Read file content
     char* file_content = 0;
     long file_length = 0;
     fseek(config_file, 0, SEEK_END);
@@ -44,7 +44,7 @@ bool SystemConfigStd::loadConfig()
     fseek(config_file, 0, SEEK_SET);
     file_content = (char*)malloc(file_length);
 
-    // 如果内存申请失败（通常是文件损坏导致的文件大小问题），尝试读取备份文件
+    // If memory allocation fails (usually due to a file size issue from corruption), try reading the backup file
     if (!file_content) {
         fclose(config_file);
 
@@ -55,7 +55,7 @@ bool SystemConfigStd::loadConfig()
 
         config_file = fopen(backup_path.c_str(), "rb");
 
-        // 如果备份打开失败，重建所有
+        // If opening the backup fails, recreate everything
         if (config_file == NULL) {
             mclog::error("open backup failed, try recreating..");
             saveConfig();
@@ -67,9 +67,9 @@ bool SystemConfigStd::loadConfig()
         fclose(config_file);
     }
 
-    // 解析 json 内容并保存到当前配置
+    // Parse the json content and save into the current config
     if (!parse_json_and_copy_config(file_content)) {
-        // 如果解析失败，则重建
+        // If parsing fails, recreate
         mclog::tagInfo(_tag, " try recreating..");
         saveConfig();
         backup_config_file();
@@ -83,13 +83,13 @@ bool SystemConfigStd::saveConfig()
 {
     mclog::tagInfo(_tag, "save config to fs");
 
-    // 备份原来的
+    // Back up the original
     backup_config_file();
 
-    // 将当前配置序列化 json
+    // Serialize current config to json
     std::string json_content = create_config_json();
 
-    // 打开配置文件并写入
+    // Open config file and write
     mclog::tagInfo(_tag, "open {}", _system_config_path);
     FILE* config_file = fopen(_system_config_path.c_str(), "wb");
     if (config_file == NULL) {
@@ -108,14 +108,14 @@ std::string SystemConfigStd::create_config_json()
 {
     JsonDocument doc;
 
-    // 复制配置
+    // Copy config
     doc["mute"] = _config.mute;
     doc["hapticFeedback"] = _config.hapticFeedback;
     doc["watchFace"] = _config.watchFace;
     doc["widgetA"] = _config.widgetA;
     doc["widgetB"] = _config.widgetB;
 
-    // 序列化 json
+    // Serialize json
     std::string json_content;
     if (serializeJson(doc, json_content) == 0) {
         json_content.clear();
@@ -134,7 +134,7 @@ bool SystemConfigStd::parse_json_and_copy_config(char* jsonContent)
         return false;
     }
 
-    // 复制配置
+    // Copy config
     _config.mute = doc["mute"];
     _config.hapticFeedback = doc["hapticFeedback"];
     _config.watchFace = doc["watchFace"].as<std::string>();
@@ -148,7 +148,7 @@ void SystemConfigStd::backup_config_file()
 {
     mclog::tagInfo(_tag, "create config backup");
 
-    // 打开配置文件
+    // Open config file
     mclog::tagInfo(_tag, "try open {}", _system_config_path);
     FILE* config_file = fopen(_system_config_path.c_str(), "rb");
     if (config_file == NULL) {
@@ -156,7 +156,7 @@ void SystemConfigStd::backup_config_file()
         return;
     }
 
-    // 创建备份配置文件
+    // Create backup config file
     std::string backup_path = _system_config_path + ".bk";
     mclog::tagInfo(_tag, "try open {}", backup_path);
     FILE* config_backup_file = fopen(backup_path.c_str(), "wb");
@@ -165,7 +165,7 @@ void SystemConfigStd::backup_config_file()
         return;
     }
 
-    // 复制
+    // Copy
     char* buffer = new char[1024];
     size_t bytesRead;
     while ((bytesRead = fread(buffer, 1, 1024, config_file)) > 0) {

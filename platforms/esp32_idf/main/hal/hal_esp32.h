@@ -26,7 +26,7 @@ private:
     void lvgl_init();
     void fs_init();
 
-    // 调驱动用
+    // For driver bring-up
     void hal_test();
     void imu_test();
     void buzzer_test();

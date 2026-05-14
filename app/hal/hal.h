@@ -22,13 +22,13 @@
 #include "components/ble.h"
 
 /**
- * @brief 硬件抽象层，提供统一的硬件、平台相关行为接口
+ * @brief Hardware abstraction layer, providing unified hardware/platform-specific behavior interfaces
  *
  */
 namespace HAL {
 
 /**
- * @brief 硬件抽象基类
+ * @brief Hardware abstraction base class
  *
  */
 class HalBase {
@@ -38,14 +38,14 @@ public:
     /* -------------------------------------------------------------------------- */
     /*                                Hardware APIs                               */
     /* -------------------------------------------------------------------------- */
-    // 硬件行为抽象，也就是创建自己的 HAL 时所要重写的方法
-    // 在这里加上你需要的虚函数方法
-    // 比如从某个接口拉取信息：
+    // Hardware behavior abstractions, i.e. methods to override when creating your own HAL
+    // Add the virtual methods you need here
+    // For example, fetching info from an HTTP endpoint:
     // virtual std::string fetchInfoFromHttp(std::string api) { return ""; }
-    // 如果行为比较复杂的，可以封装成组件，参考 components 目录
+    // For more complex behaviors, encapsulate them as components; see the components directory
 
     /**
-     * @brief 获取硬件抽象类型
+     * @brief Get the HAL type
      *
      * @return std::string
      */
@@ -55,7 +55,7 @@ public:
     }
 
     /**
-     * @brief 在这里初始化硬件，以及组件的实例创建
+     * @brief Initialize hardware and create component instances here
      *
      */
     virtual void init() {}
@@ -63,7 +63,7 @@ public:
     /* -------------------------------------------------------------------------- */
     /*                              Components Getter                             */
     /* -------------------------------------------------------------------------- */
-    // 组件实例接口
+    // Component instance accessors
     hal_components::SystemControlBase& SysCtrl();
     hal_components::ImuBase& Imu();
     hal_components::BuzzerBase& Buzzer();
@@ -75,7 +75,7 @@ public:
     hal_components::BleBase& Ble();
 
 protected:
-    // 组件实例管理
+    // Component instance management
     struct Components_t {
         std::unique_ptr<hal_components::SystemControlBase> system_control;
         std::unique_ptr<hal_components::ImuBase> imu;
@@ -93,29 +93,29 @@ protected:
 /* -------------------------------------------------------------------------- */
 /*                                  Singleton                                 */
 /* -------------------------------------------------------------------------- */
-// 提供一个可注入的全局单例
+// Provides an injectable global singleton
 
 /**
- * @brief 获取当前 HAL 实例
+ * @brief Get the current HAL instance
  *
  * @return HalBase&
  */
 HalBase& Get();
 
 /**
- * @brief 注入 HAL，期间会调用 init() 以初始化 HAL
+ * @brief Inject a HAL; init() will be called to initialize it
  *
  * @param hal
  */
 void Inject(std::unique_ptr<HalBase> hal);
 
 /**
- * @brief 销毁当前 HAL 实例
+ * @brief Destroy the current HAL instance
  *
  */
 void Destroy();
 
-// 封装一下不然长的一
+// Convenience wrappers to keep call sites short
 inline hal_components::SystemControlBase& SysCtrl()
 {
     return Get().SysCtrl();

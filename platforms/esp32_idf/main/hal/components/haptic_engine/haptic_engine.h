@@ -23,7 +23,7 @@ public:
     void playEffect(const HapticEffect::HapticEffect_t& effect) override;
     void playEffects(const std::vector<HapticEffect::HapticEffect_t>& effectSequence) override;
 
-    // 好像并没有必要
+    // Doesn't seem necessary
     // void stop() override;
     // bool isPlaying() override;
 

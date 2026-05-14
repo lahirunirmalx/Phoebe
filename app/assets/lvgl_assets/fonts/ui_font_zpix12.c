@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 12 px
  * Bpp: 1
- * Opts: --bpp 1 --size 12 --font F:/newshit/phoebe/lvgl_shit/assets/zpix.ttf -o F:/newshit/phoebe/lvgl_shit/assets\ui_font_zpix12.c --format lvgl -r 0x20-0x7f -r 0x4E00-0x9FFF -r 0x3040-0x309F -r 0x30A0-0x30FF -r 0x3000-0x303F -r 0xFF00-0xFFEF --no-compress --no-prefilter
+ * Opts: --bpp 1 --size 12 --font /build/lvgl_assets/assets/zpix.ttf -o /build/lvgl_assets/assets\ui_font_zpix12.c --format lvgl -r 0x20-0x7f -r 0x4E00-0x9FFF -r 0x3040-0x309F -r 0x30A0-0x30FF -r 0x3000-0x303F -r 0xFF00-0xFFEF --no-compress --no-prefilter
  ******************************************************************************/
 
 #include "../ui.h"

@@ -45,7 +45,7 @@ void AppLauncher::onOpen()
 
 void AppLauncher::onRunning()
 {
-    // 刷新按钮状态
+    // Refresh button states
     HAL::BtnUpdate();
     handle_page_change();
 }

@@ -13,14 +13,14 @@
 #include <vector>
 
 /**
- * @brief 启动器，包括表盘、小组件、消息、应用菜单四大页面
+ * @brief Launcher, comprising four main pages: watch face, widgets, notifications, and app menu
  *
  */
 class AppLauncher : public mooncake::AppAbility {
 public:
     AppLauncher();
 
-    // 重写生命周期回调
+    // Override lifecycle callbacks
     void onCreate() override;
     void onOpen() override;
     void onRunning() override;

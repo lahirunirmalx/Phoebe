@@ -30,7 +30,7 @@
 
 // #include <Adafruit_I2CDevice.h>
 // https://github.com/adafruit/Adafruit_DRV2605_Library
-// 改 idf i2c driver
+// Switched to IDF i2c driver
 #include <driver/i2c.h>
 
 #define DRV2605_ADDR 0x5A ///< Device I2C address

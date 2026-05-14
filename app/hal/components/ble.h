@@ -13,7 +13,7 @@
 namespace hal_components {
 
 /**
- * @brief BLE 组件基类
+ * @brief BLE component base class
  *
  */
 class BleBase {

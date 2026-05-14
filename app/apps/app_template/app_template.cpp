@@ -19,7 +19,7 @@ using namespace mooncake;
 
 AppTemplate::AppTemplate()
 {
-    // 配置 App 信息
+    // Configure app info
     setAppInfo().name = "AppTemplate";
 }
 
@@ -27,7 +27,7 @@ void AppTemplate::onCreate()
 {
     mclog::tagInfo(_tag, "on create");
 
-    // 打开自己
+    // Open self
     open();
 }
 

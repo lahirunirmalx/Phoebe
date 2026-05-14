@@ -15,15 +15,15 @@
 
 extern "C" void app_main(void)
 {
-    // 应用层初始化回调
+    // Application layer initialization callback
     APP::InitCallback_t callback;
 
     callback.onHalInjection = []() {
-        // 注入桌面平台的硬件抽象
+        // Inject the hardware abstraction for the desktop platform
         HAL::Inject(std::make_unique<HalEsp32>());
     };
 
-    // 应用层启动
+    // Application layer start
     APP::Init(callback);
     while (!APP::IsDone()) {
         APP::Update();

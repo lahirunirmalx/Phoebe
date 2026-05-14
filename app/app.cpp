@@ -25,32 +25,32 @@ void APP::Init(InitCallback_t callback)
     mclog::tagInfo(_tag, "init");
 
     /* ------------------------------ HAL Injection ----------------------------- */
-    // 硬件抽象层注入
+    // Hardware abstraction layer injection
     mclog::tagInfo(_tag, "hal injection");
     if (callback.onHalInjection) {
         callback.onHalInjection();
     }
 
     /* -------------------------------- Mooncake -------------------------------- */
-    // Mooncake 初始化
+    // Initialize Mooncake
     mclog::tagInfo(_tag, "create mooncake");
 
-    // 踢一脚懒加载
+    // Kick off lazy initialization
     GetMooncake();
 
-    // 安装 App
+    // Install apps
     on_install_apps();
 }
 
 void APP::Update()
 {
-    // 更新 Mooncake
+    // Update Mooncake
     GetMooncake().update();
 
-    // 更新 Lvgl
+    // Update LVGL
     lv_timer_handler();
 
-    // 重置看门狗，建议实现这个看门狗，避免某个生命周期回调卡死了
+    // Feed the watchdog; implementing this watchdog is recommended to avoid hangs in lifecycle callbacks
     HAL::SysCtrl().feedTheDog();
 }
 

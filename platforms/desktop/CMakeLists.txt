@@ -27,7 +27,7 @@ add_subdirectory(dependencies/mooncake)
 set(MOONCAKE_LOG_BUILD_EXAMPLE OFF)
 add_subdirectory(dependencies/mooncake_log)
 
-# Smooth ui shit
+# Smooth UI toolkit
 add_subdirectory(dependencies/smooth_ui_toolkit)
 
 # Lgfx slim
@@ -44,7 +44,7 @@ set(APP_LAYER_INCS
     app/
 )
 
-# 桌面端源文件
+# Desktop source files
 file(GLOB_RECURSE APP_DESKTOP_BUILD_SRCS
     platforms/desktop/*.cpp
     platforms/desktop/*.cc
@@ -65,14 +65,14 @@ target_link_libraries(app_desktop_build PUBLIC
     pthread
 )
 
-# 设置构建路径
+# Set build path
 set(CMAKE_BINARY_DIR ${CMAKE_SOURCE_DIR}/build/desktop)
 
-# 确保构建路径存在
+# Ensure build path exists
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR})
 
-# 设置生成的可执行文件输出路径
+# Set output path for generated executable
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 
-# # 设置生成的库文件输出路径
+# # Set output path for generated library files
 # set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR})

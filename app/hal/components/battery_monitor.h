@@ -13,18 +13,18 @@
 
 namespace BatteryState {
 enum BatteryState_t {
-    NotConnected = 0, // 没接
-    Charging,         // 充电
-    Normal,           // 正常放电
-    Low,              // 低电量
-    Dead,             // 似了（
+    NotConnected = 0, // Not connected
+    Charging,         // Charging
+    Normal,           // Normal discharge
+    Low,              // Low battery
+    Dead,             // Dead
 };
 }
 
 namespace hal_components {
 
 /**
- * @brief 电池监视基类
+ * @brief Battery monitor base class
  *
  */
 class BatteryMonitorBase {

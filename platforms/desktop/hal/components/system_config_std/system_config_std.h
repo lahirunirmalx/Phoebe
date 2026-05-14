@@ -12,7 +12,7 @@
 #include <hal/hal.h>
 #include <string>
 
-// 标准c文件库 + arduinoJson 实现
+// Standard C file library + ArduinoJson implementation
 class SystemConfigStd : public hal_components::SystemConfigBase {
 public:
     SystemConfigStd(const std::string& rootPath = "./");

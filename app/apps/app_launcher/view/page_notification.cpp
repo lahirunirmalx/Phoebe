@@ -79,7 +79,6 @@ void LauncherPageNotification::onBackground()
             canvas->updateSmoothing();
             if (canvas->isAllSmoothingFinish()) {
                 canvas.reset();
-                // mclog::tagInfo(_tag, "free shit");
             }
         }
     }

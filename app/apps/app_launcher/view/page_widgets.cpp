@@ -60,7 +60,6 @@ void LauncherPageWidgets::onForeground()
         if (!isOnSubPage()) {
             if (_mouse->isAllSmoothingFinish()) {
                 _mouse.reset();
-                // mclog::tagInfo(_tag, "free shit");
             }
         }
     }
@@ -74,7 +73,6 @@ void LauncherPageWidgets::onBackground()
             canvas->updateSmoothing();
             if (canvas->isAllSmoothingFinish()) {
                 canvas.reset();
-                // mclog::tagInfo(_tag, "free shit");
                 handle_destroy_launcher_widget(i);
             }
         }
@@ -85,7 +83,6 @@ void LauncherPageWidgets::onBackground()
         _mouse->updateSmoothing();
         if (_mouse->isAllSmoothingFinish()) {
             _mouse.reset();
-            // mclog::tagInfo(_tag, "free shit");
         }
     }
 }

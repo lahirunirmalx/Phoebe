@@ -23,7 +23,7 @@ void HalDesktop::init()
 {
     lvgl_init();
 
-    // 创建组件实例
+    // Create component instances
     _components.system_control = std::make_unique<SystemControlSdl>();
     _components.system_config = std::make_unique<SystemConfigStd>();
     _components.button = std::make_unique<ButtonSdl>();
@@ -32,7 +32,7 @@ void HalDesktop::init()
     _components.ble = std::make_unique<BlePython>();
     _components.ble->init();
 
-    // 拉取一下保存的配置
+    // Load the saved configuration
     HAL::SysCfg().loadConfig();
     HAL::SysCfg().logConfig();
 }

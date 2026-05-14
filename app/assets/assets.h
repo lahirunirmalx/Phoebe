@@ -14,13 +14,13 @@
 #include <cstdint>
 
 /**
- * @brief 资产池层，用于管理字体、图片等静态资源，提供全局懒加载单例，方便 App 的静态资源访问
+ * @brief Asset pool layer: manages static resources like fonts and images, exposed as a global lazy-loaded singleton for convenient app access
  *
  */
 namespace AssetPool {
 
 /**
- * @brief 资产池定义，静态资源都可以放在这里
+ * @brief Asset pool definition; place all static resources here
  *
  */
 struct AssetPool_t {
@@ -39,7 +39,7 @@ struct AssetPool_t {
 };
 
 /**
- * @brief 资产池初始化回调，可以在这里面赋值你的图片指针等
+ * @brief Asset pool init callback; assign your image pointers and similar resources here
  *
  * @param assetPool
  */
@@ -48,22 +48,22 @@ void on_asset_pool_init(AssetPool_t& assetPool);
 /* -------------------------------------------------------------------------- */
 /*                                  Singleton                                 */
 /* -------------------------------------------------------------------------- */
-// 全局单例
+// Global singleton
 
 /**
- * @brief 获取资产池
+ * @brief Get the asset pool
  *
  * @return AssetPool_t&
  */
 AssetPool_t& Get();
 
 /**
- * @brief 销毁当前资产池实例
+ * @brief Destroy the current asset pool instance
  *
  */
 void Destroy();
 
-// 封装一下不然长的一
+// Convenience wrapper to keep call sites short
 inline const AssetPool_t::Font_t& Font()
 {
     return Get().Font;

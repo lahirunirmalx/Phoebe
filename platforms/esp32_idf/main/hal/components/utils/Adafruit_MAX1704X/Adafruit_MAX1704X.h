@@ -22,7 +22,7 @@
 // #include <Adafruit_I2CDevice.h>
 
 // https://github.com/adafruit/Adafruit_MAX1704X/
-// 改 idf i2c driver
+// Switched to IDF i2c driver
 #include <driver/i2c.h>
 
 #define MAX17048_I2CADDR_DEFAULT 0x36 ///< MAX17048 default i2c address

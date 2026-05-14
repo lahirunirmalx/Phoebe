@@ -11,7 +11,7 @@
 #pragma once
 #include <hal/hal.h>
 
-// Arduino 实现
+// Arduino implementation
 class SystemControlArduino : public hal_components::SystemControlBase {
 public:
     void init() override;

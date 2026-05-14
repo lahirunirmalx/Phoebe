@@ -17,7 +17,7 @@ static const std::string _tag = "Asset";
 
 AssetPool::AssetPool_t& AssetPool::Get()
 {
-    // 如果没有注入过，则创建实例，并触发初始化回调
+    // If not injected yet, create the instance and trigger the init callback
     if (!_asset_pool) {
         _asset_pool = new AssetPool::AssetPool_t;
         mclog::tagInfo(_tag, "create and init asset pool");

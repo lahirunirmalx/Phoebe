@@ -8,49 +8,49 @@ class BLEMessageSimulator(QWidget):
 
         self.setWindowTitle("BLE Message Simulator")
 
-        # 创建布局
+        # Create layout
         layout = QVBoxLayout()
 
-        # 创建文本框
+        # Create text box
         self.text_box = QTextEdit(self)
         self.text_box.setPlaceholderText("Enter your message here...")
         layout.addWidget(self.text_box)
 
-        # 创建按钮
+        # Create button
         self.button = QPushButton("Send", self)
         self.button.clicked.connect(self.on_button_click)
         layout.addWidget(self.button)
 
-        # 创建标签显示结果
+        # Create label to display result
         self.result_label = QLabel(self)
         layout.addWidget(self.result_label)
 
-        # 设置窗口布局
+        # Set window layout
         self.setLayout(layout)
 
     def on_button_click(self):
         message = self.text_box.toPlainText()
 
         try:
-            # 尝试解析文本为 JSON
+            # Try parsing text as JSON
             json_data = json.loads(message)
-            # 压缩 JSON
+            # Compress JSON
             compressed_json = json.dumps(json_data, separators=(',', ':'))
-            print(compressed_json)  # 打印压缩后的 JSON
+            print(compressed_json)  # Print compressed JSON
             self.result_label.setText("Valid JSON compressed and printed.")
-            self.result_label.setStyleSheet("color: green;")  # 设置文本颜色为绿色
+            self.result_label.setStyleSheet("color: green;")  # Set text color to green
         except json.JSONDecodeError:
             self.result_label.setText("Invalid JSON.")
-            self.result_label.setStyleSheet("color: red;")  # 设置文本颜色为红色
+            self.result_label.setStyleSheet("color: red;")  # Set text color to red
 
 
-# 创建应用程序
+# Create application
 app = QApplication([])
 
-# 创建窗口
+# Create window
 window = BLEMessageSimulator()
 window.resize(400, 250)
 window.show()
 
-# 运行主循环
+# Run main loop
 app.exec_()

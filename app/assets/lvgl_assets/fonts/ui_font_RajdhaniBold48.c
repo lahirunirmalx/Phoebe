@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 48 px
  * Bpp: 4
- * Opts: --bpp 4 --size 48 --font F:/newshit/phoebe/lvgl_shit/assets/Rajdhani-Bold.ttf -o F:/newshit/phoebe/lvgl_shit/assets\ui_font_RajdhaniBold48.c --format lvgl -r 0x20-0x7f --no-compress --no-prefilter
+ * Opts: --bpp 4 --size 48 --font /build/lvgl_assets/assets/Rajdhani-Bold.ttf -o /build/lvgl_assets/assets\ui_font_RajdhaniBold48.c --format lvgl -r 0x20-0x7f --no-compress --no-prefilter
  ******************************************************************************/
 
 #include "../ui.h"

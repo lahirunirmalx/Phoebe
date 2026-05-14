@@ -22,7 +22,7 @@ static void _ble_python_daemon()
 {
     mclog::tagInfo(_tag, "start ble python daemon");
 
-    // 创建管道
+    // Create pipe
     std::string script_path = "../../platforms/desktop/hal/components/ble/desktop_ble_server.py";
     FILE* pipe = popen(("python3 -u " + script_path).c_str(), "r");
     if (!pipe) {
@@ -30,7 +30,7 @@ static void _ble_python_daemon()
         return;
     }
 
-    // 实时读取输出
+    // Read output in real time
     char buffer[128];
     while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
         mclog::tagInfo(_tag, "get msg: {}", buffer);
@@ -39,7 +39,7 @@ static void _ble_python_daemon()
         SharedData::Return();
     }
 
-    // 关闭管道
+    // Close pipe
     pclose(pipe);
     mclog::tagInfo(_tag, "ble python daemon stop");
 }

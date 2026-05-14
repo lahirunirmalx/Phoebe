@@ -47,22 +47,22 @@ WidgetClock::~WidgetClock()
 
 void WidgetClock::update()
 {
-    // 获取当前时间
+    // Get the current time
     time_t now;
     struct tm* tm_info;
     time(&now);
     tm_info = localtime(&now);
 
-    int hour = tm_info->tm_hour % 12; // 12小时制
+    int hour = tm_info->tm_hour % 12; // 12-hour format
     int minute = tm_info->tm_min;
     int second = tm_info->tm_sec;
 
-    // 计算针的位置
+    // Compute hand positions
     float hour_angle = (hour + minute / 60.0) * 30 * (3.14159 / 180);    // 360 / 12 = 30
     float minute_angle = (minute + second / 60.0) * 6 * (3.14159 / 180); // 360 / 60 = 6
     float second_angle = second * 6 * (3.14159 / 180);                   // 360 / 60 = 6
 
-    // 更新时针
+    // Update hour hand
     _hour_points[0] = {centerX, centerY};
     _hour_points[1] = {centerX + (int)(hourHandLength * cos(hour_angle - 1.5708)),
                        centerY + (int)(hourHandLength * sin(hour_angle - 1.5708))};
@@ -70,7 +70,7 @@ void WidgetClock::update()
     lv_obj_set_style_line_width(_hour_hand, hourHandWidth, LV_PART_MAIN);
     lv_obj_set_style_line_color(_hour_hand, handColor, LV_PART_MAIN);
 
-    // 更新分针
+    // Update minute hand
     _minute_points[0] = {centerX, centerY};
     _minute_points[1] = {centerX + (int)(minHandLength * cos(minute_angle - 1.5708)),
                          centerY + (int)(minHandLength * sin(minute_angle - 1.5708))};
@@ -78,7 +78,7 @@ void WidgetClock::update()
     lv_obj_set_style_line_width(_minute_hand, minHandWidth, LV_PART_MAIN);
     lv_obj_set_style_line_color(_minute_hand, handColor, LV_PART_MAIN);
 
-    // 更新秒针
+    // Update second hand
     _second_points[0] = {centerX, centerY};
     _second_points[1] = {centerX + (int)(secHandLength * cos(second_angle - 1.5708)),
                          centerY + (int)(secHandLength * sin(second_angle - 1.5708))};

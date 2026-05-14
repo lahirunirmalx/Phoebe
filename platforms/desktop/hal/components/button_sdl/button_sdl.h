@@ -11,7 +11,7 @@
 #pragma once
 #include <hal/hal.h>
 
-// SDL 实现
+// SDL implementation
 class ButtonSdl : public hal_components::ButtonBase {
 public:
     bool getButton(ButtonId::ButtonId_t id) override;

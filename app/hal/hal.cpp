@@ -18,7 +18,7 @@
 /* -------------------------------------------------------------------------- */
 /*                                  Singleton                                 */
 /* -------------------------------------------------------------------------- */
-// 提供一个可注入的全局单例
+// Provides an injectable global singleton
 
 static std::unique_ptr<HAL::HalBase> _hal_instance;
 static const std::string _tag = "HAL";
@@ -39,14 +39,14 @@ void HAL::Inject(std::unique_ptr<HalBase> hal)
         return;
     }
 
-    // 销毁已有实例，储存新实例
+    // Destroy any existing instance and store the new one
     Destroy();
     _hal_instance = std::move(hal);
 
-    // 看看何方神圣
+    // Report which HAL implementation we got
     mclog::tagInfo(_tag, "injecting hal type: {}", _hal_instance->type());
 
-    // 初始化
+    // Initialize
     mclog::tagInfo(_tag, "invoke init");
     _hal_instance->init();
     mclog::tagInfo(_tag, "hal injected");
@@ -60,7 +60,7 @@ void HAL::Destroy()
 /* -------------------------------------------------------------------------- */
 /*                              Components Getter                             */
 /* -------------------------------------------------------------------------- */
-// 组件获取接口，如果当前没有实例，则懒加载一个基类，这样就算某个平台没有适配某个组件，也不会炸
+// Component getters; if no instance exists yet, lazily create a base instance so platforms without a given component still work
 
 hal_components::SystemControlBase& HAL::HalBase::SysCtrl()
 {

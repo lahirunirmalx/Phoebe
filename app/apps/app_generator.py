@@ -9,8 +9,8 @@ script_directory = os.path.dirname(os.path.abspath(sys.argv[0])) + "/"
 
 
 def toSnakeCase(sentence):
-    # 用空格替换连字符，然后应用正则表达式替换以实现标题大小写转换，
-    # 并在单词之间添加下划线，最后将结果转换为小写
+    # Replace hyphens with spaces, then apply regex substitutions to convert to title case
+    # and insert underscores between words, finally lowercasing the result
     return '_'.join(
         sub('([A-Z][a-z]+)', r' \1',
             sub('([A-Z]+)', r' \1',
@@ -18,11 +18,11 @@ def toSnakeCase(sentence):
 
 
 def toCamelCase(sentence):
-    # 使用正则表达式替换下划线和连字符为空格，
-    # 然后将字符串转换为标题格式（每个单词的第一个字母大写），并移除空格
+    # Use regex to replace underscores and hyphens with spaces,
+    # then convert to title case (capitalize first letter of each word) and remove spaces
     sentence = sub(r"(_|-)+", " ", sentence).title().replace(" ", "")
 
-    # 确保第一个字母是小写
+    # Ensure the first letter is lowercase
     return ''.join([sentence[0].lower(), sentence[1:]])
 
 
@@ -33,7 +33,7 @@ def toCamelCase(sentence):
 
 
 def checkInputValid(input):
-    # 检查字符是否有效
+    # Check whether the characters are valid
     if input == "":
         return False
     if not re.match("^[a-zA-Z_\s]+$", input):
@@ -41,7 +41,7 @@ def checkInputValid(input):
     if input == "template":
         return False
 
-    # 检查格式是否有效
+    # Check whether the format is valid
     if len(input.replace(' ', '').replace('_', '')) == 0:
         return False
 
@@ -58,7 +58,7 @@ class PrintColor:
 
 
 def getAppName():
-    # 读取输入
+    # Read input
     while True:
         user_input = input("input new app's name: ")
         if checkInputValid(user_input):
@@ -83,7 +83,7 @@ class AppFilePaths:
 def getAppFilePaths(appName):
     file_paths = AppFilePaths("", "", "")
 
-    # 获取文件路径
+    # Build file paths
     file_paths.folder = script_directory + toSnakeCase(appName)
 
     file_paths.source_file = os.path.join(
@@ -101,42 +101,42 @@ def getAppFilePaths(appName):
 
 
 def createAppFiles(appName, appFilePaths):
-    # 创建文件夹
+    # Create folder
     os.mkdir(appFilePaths.folder)
 
-    # 创建文件
+    # Create files
     source_file = open(appFilePaths.source_file, mode='x')
     header_file = open(appFilePaths.header_file, mode='x')
 
-    # 获取模板内容
+    # Load template content
     content_source_file = open(
         script_directory + "app_template/app_template.cpp", mode='r').read()
     content_header_file = open(
         script_directory + "app_template/app_template.h", mode='r').read()
 
-    # 替换类名
+    # Replace class name
     content_source_file = content_source_file.replace(
         "AppTemplate", appName)
     content_header_file = content_header_file.replace(
         "AppTemplate", appName)
 
-    # 替换文件名
+    # Replace file name
     content_source_file = content_source_file.replace(
         "app_template", toSnakeCase(appName))
     content_header_file = content_header_file.replace(
         "app_template", toSnakeCase(appName))
 
-    # 替换日期
+    # Replace date
     content_source_file = content_source_file.replace(
         "<date></date>", datetime.now().strftime("%Y-%m-%d"))
     content_header_file = content_header_file.replace(
         "<date></date>", datetime.now().strftime("%Y-%m-%d"))
 
-    # 写入内容
+    # Write content
     source_file.write(content_source_file)
     header_file.write(content_header_file)
 
-    # 关闭文件
+    # Close files
     source_file.close()
     header_file.close()
 
@@ -144,33 +144,33 @@ def createAppFiles(appName, appFilePaths):
 def installApp(appName):
     print("> install app {} into mooncake".format(appName))
 
-    # 读取应用安装回调
+    # Read the app installer callback
     app_install_cb_file = open(script_directory + "app_installer.h", mode='r')
     content_app_install_cb_file = app_install_cb_file.read()
     app_install_cb_file.close()
 
-    # 添加头文件包含
+    # Add header file include
     header_include_tag = "/* Header files locator (Don't remove) */"
     content_app_install_cb_file = content_app_install_cb_file.replace(
         header_include_tag, "#include \"{}/{}.h\"\n{}".format(toSnakeCase(appName), toSnakeCase(appName), header_include_tag))
 
-    # 添加应用安装语句
+    # Add the app install statement
     app_install_tag = "/* Install app locator (Don't remove) */"
     content_app_install_cb_file = content_app_install_cb_file.replace(
         app_install_tag, "mooncake::GetMooncake().installApp(std::make_unique<{}>());\n    {}".format(appName, app_install_tag))
 
-    # 写入应用安装回调
+    # Write the app installer callback
     app_install_cb_file = open(script_directory + "app_installer.h", mode='w+')
     app_install_cb_file.write(content_app_install_cb_file)
     app_install_cb_file.close()
 
 
-if __name__ == "__main__": 
+if __name__ == "__main__":
     print("app generator")
 
-    name = getAppName()  # 获取应用名称
-    file_paths = getAppFilePaths(name)  # 获取文件路径
-    createAppFiles(name, file_paths)  # 创建应用文件
-    installApp(name)  # 安装应用
+    name = getAppName()  # Get the app name
+    file_paths = getAppFilePaths(name)  # Get file paths
+    createAppFiles(name, file_paths)  # Create app files
+    installApp(name)  # Install the app
 
-    print("\ndone")  # 完成
+    print("\ndone")  # Done

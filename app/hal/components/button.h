@@ -24,7 +24,7 @@ enum ButtonId_t {
 namespace hal_components {
 
 /**
- * @brief 按键组件基类
+ * @brief Button component base class
  *
  */
 class ButtonBase {
@@ -32,11 +32,11 @@ public:
     virtual void init() {}
 
     /**
-     * @brief 最基础的按钮状态获取，比如引脚电平
+     * @brief Lowest-level button state read, e.g. raw pin level
      *
      * @param id
-     * @return true 按下
-     * @return false 没按
+     * @return true Pressed
+     * @return false Not pressed
      */
     virtual bool getButton(ButtonId::ButtonId_t id)
     {
@@ -44,7 +44,7 @@ public:
     }
 
     /**
-     * @brief 获取当前系统运行毫秒数，防抖、双击什么的用的
+     * @brief Get the current system uptime in milliseconds, used for debounce, double-click, etc.
      *
      * @return std::uint32_t
      */
@@ -53,14 +53,14 @@ public:
         return 0;
     }
 
-    // 按键状态类实例，对应按键 ID
+    // Button state class instances, one per button ID
     Button_Class BtnPower;
     Button_Class BtnUp;
     Button_Class BtnOk;
     Button_Class BtnDown;
 
     /**
-     * @brief 刷新按钮状态
+     * @brief Refresh button states
      *
      */
     inline void update()

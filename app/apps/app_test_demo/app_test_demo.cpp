@@ -1,5 +1,5 @@
 /**
- * @file app_test_shit.cpp
+ * @file app_test_demo.cpp
  * @author Forairaaaaa
  * @brief
  * @version 0.1
@@ -8,7 +8,7 @@
  * @copyright Copyright (c) 2024
  *
  */
-#include "app_test_shit.h"
+#include "app_test_demo.h"
 #include <mooncake_log.h>
 #include <hal/hal.h>
 #include <src/display/lv_display.h>
@@ -23,12 +23,12 @@ using namespace page;
 
 #define _tag (getAppInfo().name)
 
-AppTestShit::AppTestShit()
+AppTestDemo::AppTestDemo()
 {
-    setAppInfo().name = "AppTestShit";
+    setAppInfo().name = "AppTestDemo";
 }
 
-void AppTestShit::onCreate()
+void AppTestDemo::onCreate()
 {
     mclog::tagInfo(_tag, "on create");
     open();
@@ -36,29 +36,29 @@ void AppTestShit::onCreate()
     lv_obj_set_scrollbar_mode(lv_screen_active(), LV_SCROLLBAR_MODE_OFF);
 }
 
-void AppTestShit::onOpen()
+void AppTestDemo::onOpen()
 {
     mclog::tagInfo(_tag, "on open");
 }
 
-void AppTestShit::onRunning()
+void AppTestDemo::onRunning()
 {
     auto ret = CreateSelecMenuPageAndWaitResult(
         [](std::vector<std::string>& optionList, size_t& startupIndex) {
-            optionList.push_back("1111");
-            optionList.push_back("23525");
-            optionList.push_back("asf af dd");
-            optionList.push_back("??? &(**&)vdssdvsdvdvdsv");
-            optionList.push_back("6666..");
-            optionList.push_back("*** fasf??? dsd");
-            optionList.push_back("*** fasf??? dsd");
-            optionList.push_back("1111");
-            optionList.push_back("23525");
-            optionList.push_back("asf af dd");
-            optionList.push_back("??? &(**&)vdssdvsdvdvdsv");
-            optionList.push_back("6666..");
-            optionList.push_back("*** fasf??? dsd");
-            optionList.push_back("*** fasf??? dsd");
+            optionList.push_back("Option 1");
+            optionList.push_back("Option 2");
+            optionList.push_back("Option 3");
+            optionList.push_back("Option 4");
+            optionList.push_back("Option 5");
+            optionList.push_back("Option 6");
+            optionList.push_back("Option 7");
+            optionList.push_back("Option 8");
+            optionList.push_back("Option 9");
+            optionList.push_back("Option 10");
+            optionList.push_back("Option 11");
+            optionList.push_back("Option 12");
+            optionList.push_back("Option 13");
+            optionList.push_back("Option 14");
 
             // startupIndex = 2;
         },
@@ -66,7 +66,7 @@ void AppTestShit::onRunning()
     mclog::info("ret: {}", ret);
 }
 
-void AppTestShit::onClose()
+void AppTestDemo::onClose()
 {
     mclog::tagInfo(_tag, "on close");
 }

@@ -372,7 +372,7 @@ static void duk_widget_clock_init(duk_context* ctx)
 
 void js_binding::duk_widget_init(duk_context* ctx, WidgetFactory* widgetFactory)
 {
-    // 将 Widget factory 实例指针存到 context
+    // Store the Widget factory instance pointer in the context
     duk_push_pointer(ctx, (void*)widgetFactory);
     duk_put_global_string(ctx, _widget_factory_global_name);
 

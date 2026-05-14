@@ -30,12 +30,12 @@ bool HapticEngineDRV2605L::init()
 {
     mclog::tagInfo(_tag, "dev2605 init");
 
-    // 配置使能脚，默认使能
+    // Configure the enable pin, enabled by default
     pinMode(HAL_PIN_HAPTIC_EN, OUTPUT);
     enable();
     delay(5);
 
-    // 初始化驱动
+    // Initialize the driver
     _drv2605->init(HAL_I2C_BUS_PORT_NUM);
     _drv2605->selectLibrary(6);
     _drv2605->setMode(DRV2605_MODE_INTTRIG);

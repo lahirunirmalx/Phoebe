@@ -59,14 +59,14 @@ void render_from_uint16(SDL_Renderer* renderer, uint16_t* pixel_data, int width,
 
 void DisplaySdl::init()
 {
-    // 内存多，直接申请一个
+    // Plenty of memory, just allocate one directly
     setColorDepth(lgfx::color_depth_t::rgb565_nonswapped);
     createSprite(HAL_SCREEN_WIDTH, HAL_SCREEN_HEIGHT);
 }
 
 void DisplaySdl::push_buffer_to_display(void* buffer)
 {
-    // 从 lvgl 那里拿个 sdl renderer 实例来用
+    // Grab an SDL renderer instance from lvgl to use
     auto sdl_render = (SDL_Renderer*)lv_sdl_window_get_renderer(lv_display_get_default());
     render_from_uint16(sdl_render, (uint16_t*)buffer, width(), height());
 }

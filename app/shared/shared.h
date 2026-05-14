@@ -16,13 +16,13 @@
 #include <vector>
 
 /**
- * @brief 共享数据层，提供一个带互斥锁的全局共享数据单例
+ * @brief Shared data layer; provides a global shared-data singleton protected by a mutex
  *
  */
 namespace SharedData {
 
 /**
- * @brief 共享数据定义
+ * @brief Shared data definition
  *
  */
 struct SharedData_t {
@@ -45,20 +45,20 @@ struct SharedData_t {
 };
 
 /**
- * @brief 获取共享数据实例
+ * @brief Get the shared data instance
  *
  * @return SharedData_t&
  */
 SharedData_t& Get();
 
 /**
- * @brief 销毁共享数据实例
+ * @brief Destroy the shared data instance
  *
  */
 void Destroy();
 
 /**
- * @brief 借用共享数据（互斥上锁）
+ * @brief Borrow shared data (acquire the mutex)
  *
  */
 inline void Borrow()
@@ -67,7 +67,7 @@ inline void Borrow()
 }
 
 /**
- * @brief 归还共享数据（互斥解锁）
+ * @brief Return shared data (release the mutex)
  *
  */
 inline void Return()
@@ -75,7 +75,7 @@ inline void Return()
     Get().mutex.unlock();
 }
 
-// 封装一下不然长的一
+// Convenience wrappers to keep call sites short
 inline SharedData_t::Notification_t& Notification()
 {
     return Get().Notification;

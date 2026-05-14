@@ -28,26 +28,26 @@ extern "C" {
 #include <lvgl.h>
 #include <esp_timer.h>
 
-// 组件实例创建和杂项初始化
+// Component instance creation and miscellaneous initialization
 void HalEsp32::init()
 {
     initArduino();
 
-    // 文件系统
+    // File system
     fs_init();
 
-    // 系统控制
+    // System control
     _components.system_control = std::make_unique<SystemControlArduino>();
     _components.system_control->init();
 
-    // 按钮
+    // Button
     _components.button = std::make_unique<ButtonArduino>();
     _components.button->init();
 
     // I2C
     i2c_init();
 
-    // 电池监视
+    // Battery monitor
     _components.battery_monitor = std::make_unique<BatteryMonitorMAX17048>();
     _components.battery_monitor->init();
 
@@ -55,20 +55,20 @@ void HalEsp32::init()
     _components.imu = std::make_unique<ImuBmi270>();
     _components.imu->init();
 
-    // 蜂鸣器
+    // Buzzer
     _components.buzzer = std::make_unique<BuzzerArduino>();
 
-    // 线性马达
+    // Linear haptic motor
     _components.haptic_engine = std::make_unique<HapticEngineDRV2605L>();
     _components.haptic_engine->init();
 
-    // 夏普 MLCD
+    // Sharp MLCD
     mlcd_init();
 
     // Lvgl
     lvgl_init();
 
-    // 显示屏组件
+    // Display component
     _components.display = std::make_unique<DisplayMlcd>();
     _components.display->init();
 
@@ -83,7 +83,7 @@ void HalEsp32::i2c_init()
     const std::string tag = "i2c";
     mclog::tagInfo(tag, "init");
 
-    // 初始化
+    // Initialize
     i2c_config_t conf;
     conf.mode = I2C_MODE_MASTER;
     conf.sda_io_num = HAL_PIN_IMU_I2C_BUS_SDA;
@@ -98,7 +98,7 @@ void HalEsp32::i2c_init()
         mclog::tagError(tag, "i2c driver install failed");
     }
 
-    // 扫描
+    // Scan
     uint8_t device_num = 0;
     uint8_t WRITE_BIT = I2C_MASTER_WRITE;
     uint8_t ACK_CHECK_EN = 0x1;
@@ -131,7 +131,7 @@ void HalEsp32::i2c_init()
 
 static SharpeMlcd* _sharp_mlcd = nullptr;
 
-// 暴露给 Display 组件用
+// Exposed for use by the Display component
 SharpeMlcd* __get_sharp_mlcd()
 {
     return _sharp_mlcd;
@@ -160,7 +160,7 @@ void HalEsp32::mlcd_init()
 /* -------------------------------------------------------------------------- */
 static uint8_t* _lvgl_buffer = nullptr;
 
-// 暴露给 Display 组件用
+// Exposed for use by the Display component
 uint8_t* __get_lvgl_buffer()
 {
     return _lvgl_buffer;

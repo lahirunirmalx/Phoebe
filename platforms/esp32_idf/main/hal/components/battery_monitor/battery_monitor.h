@@ -11,7 +11,7 @@
 #pragma once
 #include <hal/hal.h>
 
-// MAX17048 实现
+// MAX17048 implementation
 class BatteryMonitorMAX17048 : public hal_components::BatteryMonitorBase {
 public:
     BatteryMonitorMAX17048();

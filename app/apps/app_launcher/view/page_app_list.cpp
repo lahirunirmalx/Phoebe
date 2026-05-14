@@ -58,7 +58,6 @@ void LauncherPageAppList::onBackground()
         _canvas->updateSmoothing();
         if (_canvas->isAllSmoothingFinish()) {
             _canvas.reset();
-            // mclog::tagInfo(_tag, "free shit");
         }
     }
 }

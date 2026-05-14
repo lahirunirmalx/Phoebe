@@ -55,7 +55,7 @@ void HalEsp32::buzzer_test()
             delay(1000);
         }
 
-        // 打断测试
+        // Interruption test
         int interval = 2000;
         while (interval >= 500) {
             HAL::Buzzer().playRtttlMusic("NokiaTun:d=4,o=5,b=225:8e6,8d6,f#,g#,8c#6,8b,d,e,8b,8a,c#,e,2a");
@@ -86,20 +86,20 @@ void HalEsp32::haptic_test()
     digitalWrite(HAL_PIN_HAPTIC_EN, 1);
     delay(100);
 
-    Adafruit_DRV2605 shit;
-    shit.init(HAL_I2C_BUS_PORT_NUM);
-    shit.selectLibrary(6);
-    shit.setMode(DRV2605_MODE_INTTRIG);
+    Adafruit_DRV2605 drv;
+    drv.init(HAL_I2C_BUS_PORT_NUM);
+    drv.selectLibrary(6);
+    drv.setMode(DRV2605_MODE_INTTRIG);
 
     uint8_t effect = 1;
     while (1) {
         // set the effect to play
-        shit.setWaveform(0, effect); // play effect
-        shit.setWaveform(1, 0);      // end waveform
+        drv.setWaveform(0, effect); // play effect
+        drv.setWaveform(1, 0);      // end waveform
 
         // play the effect!
         mclog::info("effect: {}", effect);
-        shit.go();
+        drv.go();
 
         // wait a bit
         delay(1000);
@@ -139,63 +139,63 @@ void HalEsp32::haptic_engine_test()
 
 void HalEsp32::max1704_test()
 {
-    Adafruit_MAX17048 shit;
-    mclog::info("init: {}", shit.begin(HAL_I2C_BUS_PORT_NUM));
-    mclog::info("chip id: 0x{:02X}", shit.getChipID());
+    Adafruit_MAX17048 fuel_gauge;
+    mclog::info("init: {}", fuel_gauge.begin(HAL_I2C_BUS_PORT_NUM));
+    mclog::info("chip id: 0x{:02X}", fuel_gauge.getChipID());
 
-    // 创建一个标签用于显示电压和电量
-    lv_obj_t* label = lv_label_create(lv_scr_act()); // 在当前活动屏幕上创建标签
-    lv_label_set_text(label, "Initializing...");     // 设置初始文本
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 10);    // 将标签对齐到屏幕顶部中间位置
+    // Create a label to display voltage and battery level
+    lv_obj_t* label = lv_label_create(lv_scr_act()); // create label on the active screen
+    lv_label_set_text(label, "Initializing...");     // set initial text
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 10);    // align label to the top-center of the screen
 
     pinMode(HAL_PIN_PWR_IS_USB_IN, INPUT);
 
     while (1) {
-        // 获取电压和电量百分比
-        float voltage = shit.cellVoltage();
-        float percentage = shit.cellPercent();
+        // Read voltage and battery percentage
+        float voltage = fuel_gauge.cellVoltage();
+        float percentage = fuel_gauge.cellPercent();
         bool usb_in = digitalRead(HAL_PIN_PWR_IS_USB_IN) == 1;
 
-        // 打印到控制台
+        // Print to console
         mclog::info("v: {:.3f}v p: {:.1f}% usb in: {}", voltage, percentage, usb_in);
 
-        // 更新标签内容
+        // Update label content
         lv_label_set_text(label,
                           fmt::format("v: {:.3f}v\np: {:.1f}%\nusb in: {}", voltage, percentage, usb_in).c_str());
 
-        // 喂狗（防止看门狗复位）
+        // Feed the watchdog (prevent watchdog reset)
         HAL::SysCtrl().feedTheDog();
 
-        // 刷新 LVGL
-        lv_timer_handler(); // 刷新 LVGL 的任务处理
+        // Refresh LVGL
+        lv_timer_handler(); // run LVGL task handler
         delay(1000);
     }
 }
 
 void HalEsp32::battery_monitor_test()
 {
-    // 创建一个标签用于显示电压和电量
-    lv_obj_t* label = lv_label_create(lv_scr_act()); // 在当前活动屏幕上创建标签
-    lv_label_set_text(label, "Initializing...");     // 设置初始文本
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 10);    // 将标签对齐到屏幕顶部中间位置
+    // Create a label to display voltage and battery level
+    lv_obj_t* label = lv_label_create(lv_scr_act()); // create label on the active screen
+    lv_label_set_text(label, "Initializing...");     // set initial text
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 10);    // align label to the top-center of the screen
 
     while (1) {
-        // 获取电压和电量百分比
+        // Read voltage and battery percentage
         float voltage = HAL::BatteryMonitor().voltage();
         float percentage = HAL::BatteryMonitor().percent();
         int state = (int)HAL::BatteryMonitor().state();
 
-        // 打印到控制台
+        // Print to console
         mclog::info("v: {:.3f}v p: {:.1f}% state: {}", voltage, percentage, state);
 
-        // 更新标签内容
+        // Update label content
         lv_label_set_text(label, fmt::format("v: {:.3f}v\np: {:.1f}%\nstate: {}", voltage, percentage, state).c_str());
 
-        // 喂狗（防止看门狗复位）
+        // Feed the watchdog (prevent watchdog reset)
         HAL::SysCtrl().feedTheDog();
 
-        // 刷新 LVGL
-        lv_timer_handler(); // 刷新 LVGL 的任务处理
+        // Refresh LVGL
+        lv_timer_handler(); // run LVGL task handler
         delay(500);
     }
 }

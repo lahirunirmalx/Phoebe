@@ -20,7 +20,7 @@ using namespace mooncake;
 
 AppBleManager::AppBleManager()
 {
-    // 配置 App 信息
+    // Configure app info
     setAppInfo().name = "AppBleManager";
 }
 
@@ -28,7 +28,7 @@ void AppBleManager::onCreate()
 {
     mclog::tagInfo(_tag, "on create");
 
-    // 打开自己
+    // Open self
     open();
 }
 

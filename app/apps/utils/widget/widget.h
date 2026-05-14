@@ -26,7 +26,7 @@ const lv_font_t* get_lv_font_by_string(const char* fontName);
 namespace widget {
 
 /**
- * @brief 组件类型
+ * @brief Widget type
  *
  */
 namespace WidgetType {
@@ -55,7 +55,7 @@ struct InputEvent_t {
 };
 
 /**
- * @brief 基础组件
+ * @brief Base widget
  *
  */
 class WidgetBase {
@@ -115,7 +115,7 @@ protected:
 };
 
 /**
- * @brief 标签组件
+ * @brief Label widget
  *
  */
 class WidgetLabel : public WidgetBase {
@@ -137,7 +137,7 @@ public:
 };
 
 /**
- * @brief 图片组件
+ * @brief Image widget
  *
  */
 class WidgetImg : public WidgetBase {
@@ -154,7 +154,7 @@ public:
 };
 
 /**
- * @brief 时钟组件
+ * @brief Clock widget
  *
  */
 class WidgetClock : public WidgetBase {
@@ -230,13 +230,13 @@ protected:
 };
 
 /**
- * @brief 组件工厂
+ * @brief Widget factory
  *
  */
 class WidgetFactory {
 public:
     /**
-     * @brief 创建组件，返回组件 ID
+     * @brief Create a widget and return its ID
      *
      * @param widgetType "base" | "label" | "img" | "clock"
      * @return int
@@ -244,20 +244,20 @@ public:
     int create(const char* widgetType);
 
     /**
-     * @brief 销毁组件
+     * @brief Destroy a widget
      *
-     * @param widgetId 组件 ID
+     * @param widgetId widget ID
      */
     void destory(int widgetId);
 
-    // 获取组件实例，如果没有对应 ID 或类型不对，返回 nullptr
+    // Get the widget instance; returns nullptr if no widget matches the ID or the type is wrong
     WidgetBase* getBase(int widgetId);
     WidgetLabel* getLabel(int widgetId);
     WidgetImg* getImg(int widgetId);
     WidgetClock* getClock(int widgetId);
 
     /**
-     * @brief 设置组件父对象
+     * @brief Set the widget parent object
      *
      * @param widgetParent
      */

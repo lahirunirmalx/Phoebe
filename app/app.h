@@ -13,31 +13,31 @@
 #include <functional>
 
 /**
- * @brief 应用层
+ * @brief Application layer
  *
  */
 namespace APP {
 
-// 依赖注入回调
+// Dependency injection callbacks
 struct InitCallback_t {
     std::function<void()> onHalInjection = nullptr;
 };
 
 /**
- * @brief 初始化应用层
+ * @brief Initialize the application layer
  *
  * @param callback
  */
 void Init(InitCallback_t callback);
 
 /**
- * @brief 更新应用层
+ * @brief Update the application layer
  *
  */
 void Update();
 
 /**
- * @brief 结束力
+ * @brief Whether the application layer is done
  *
  * @return true
  * @return false
@@ -45,7 +45,7 @@ void Update();
 bool IsDone();
 
 /**
- * @brief 销毁应用层
+ * @brief Destroy the application layer
  *
  */
 void Destroy();

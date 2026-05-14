@@ -15,7 +15,7 @@
 namespace hal_components {
 
 /**
- * @brief 蜂鸣器组件基类
+ * @brief Buzzer component base class
  *
  */
 class BuzzerBase {
@@ -25,7 +25,7 @@ public:
     virtual void init() {}
 
     /**
-     * @brief 开始哔哔
+     * @brief Start beeping
      *
      * @param frequency
      * @param duration
@@ -33,24 +33,24 @@ public:
     virtual void beep(float frequency, std::uint32_t duration = 0xFFFFFFFF) {}
 
     /**
-     * @brief 别叫了
+     * @brief Stop beeping
      *
      */
     virtual void stop() {}
 
     /**
-     * @brief 播放 RTTTL 音乐
+     * @brief Play RTTTL music
      *
      * @param rtttlMusic
      */
     virtual void playRtttlMusic(const std::string& rtttlMusic) {}
-    // RTTTL 格式参考：
+    // RTTTL format reference:
     // https://en.wikipedia.org/wiki/Ring_Tone_Text_Transfer_Language
     // https://adamonsoon.github.io/rtttl-play/
     // https://picaxe.com/rtttl-ringtones-for-tune-command/
 
     /**
-     * @brief 是否在播放
+     * @brief Whether something is currently playing
      *
      * @return true
      * @return false

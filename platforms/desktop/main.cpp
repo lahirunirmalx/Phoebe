@@ -15,15 +15,15 @@
 
 int main()
 {
-    // 应用层初始化回调
+    // Application layer initialization callback
     APP::InitCallback_t callback;
 
     callback.onHalInjection = []() {
-        // 注入桌面平台的硬件抽象
+        // Inject the desktop platform hardware abstraction
         HAL::Inject(std::make_unique<HalDesktop>());
     };
 
-    // 应用层启动
+    // Start application layer
     APP::Init(callback);
     while (!APP::IsDone()) {
         APP::Update();

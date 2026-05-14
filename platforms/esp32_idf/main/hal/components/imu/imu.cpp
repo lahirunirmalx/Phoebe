@@ -81,9 +81,9 @@ void ImuBmi270::update()
 
 void ImuBmi270::bmi2_error_codes_print_result(int8_t rslt)
 {
-    // 没必要吧兄弟
+    // Not strictly necessary
     if (rslt != BMI2_OK) {
-        mclog::tagError(_tag, "shit happened bro");
+        mclog::tagError(_tag, "BMI2 error: {}", rslt);
     }
 }
 

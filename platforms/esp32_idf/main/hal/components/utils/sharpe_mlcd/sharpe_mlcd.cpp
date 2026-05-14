@@ -49,10 +49,10 @@ bool SharpeMlcd::init()
     // Set the vcom bit to a defined state
     _sharpmem_vcom = SHARPMEM_BIT_VCOM;
 
-    // 显存
+    // Framebuffer
     _sharpmem_buffer = new uint8_t[(_config.screen_width * _config.screen_height) / 8];
 
-    // 片选脚
+    // Chip select pin
     gpio_reset_pin((gpio_num_t)_config.pin_scs);
     gpio_set_direction((gpio_num_t)_config.pin_scs, GPIO_MODE_OUTPUT);
     gpio_set_pull_mode((gpio_num_t)_config.pin_scs, GPIO_PULLUP_PULLDOWN);
@@ -139,11 +139,11 @@ void SharpeMlcd::drawPixel(int16_t x, int16_t y, uint16_t color)
 
 uint_fast8_t SharpeMlcd::rgb565_to_grayscale(uint_fast16_t rgb565)
 {
-    // 提取 G 组件
+    // Extract the G component
     uint_fast8_t g = (rgb565 >> 5) & 0x3F; // G: 6 bits
 
-    // 将 G 扩展到 8 位
-    return (g * 255) / 63; // 转换为 8 位灰度值
+    // Expand G to 8 bits
+    return (g * 255) / 63; // Convert to an 8-bit grayscale value
 }
 
 void SharpeMlcd::drawPixelPreclipped(uint_fast16_t x, uint_fast16_t y, uint_fast16_t color)

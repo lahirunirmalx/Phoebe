@@ -307,7 +307,7 @@ static hal_components::Button_Class& _get_btn_by_id(duk_int_t buttonId)
 
 static duk_ret_t _hal_btn_api(duk_context* ctx)
 {
-    // 取 magic flag 的十位为按钮 id，个位为 api id
+    // Use the tens digit of the magic flag as the button id and the ones digit as the api id
     duk_int_t magic_flag = duk_get_current_magic(ctx);
     int button_id = magic_flag / 10;
     int api_id = magic_flag % 10;

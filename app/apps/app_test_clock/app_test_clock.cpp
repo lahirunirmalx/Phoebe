@@ -1,5 +1,5 @@
 /**
- * @file app_template.cpp
+ * @file app_test_clock.cpp
  * @author Forairaaaaa
  * @brief
  * @version 0.1
@@ -8,7 +8,7 @@
  * @copyright Copyright (c) 2024
  *
  */
-#include "app_test_clock_shit.h"
+#include "app_test_clock.h"
 #include "hal/hal.h"
 #include <algorithm>
 #include <anim/lv_example_anim.h>
@@ -35,17 +35,17 @@
 
 using namespace mooncake;
 
-AppTemplatejijiji::AppTemplatejijiji()
+AppTestClock::AppTestClock()
 {
-    // 配置 App 信息
-    setAppInfo().name = "AppTemplatejijiji";
+    // Configure App info
+    setAppInfo().name = "AppTestClock";
 }
 
-void AppTemplatejijiji::onCreate()
+void AppTestClock::onCreate()
 {
     mclog::tagInfo(getAppInfo().name, "on create");
 
-    // 打开自己
+    // Open self
     open();
 }
 
@@ -57,17 +57,17 @@ static uint8_t* canvas_buffer;
 // #define COLOR_HIGH lv_color_black()
 // #define COLOR_LOW  lv_color_white()
 
-static const char* phrases[9] = {"FUCK  AROUND FUCK OFF WHAT THE FUCK?   FUCK UP FUCK YOU",
-                          "WHAT THE FUCK?  FUCK YOU FUCK OFF FUCK UP FUCK AROUND",
-                          "FUCK  YOU  FUCK OFF WHAT THE  FUCK?  FUCK AROUND FUCK UP",
-                          "FUCK OFF FUCK UP WHAT  THE FUCK?   FUCK  AROUND FUCK YOU",
-                          "FUCK  UP FUCK  YOU FUCK  AROUND WHAT THE FUCK? FUCK OFF",
-                          "WHAT THE FUCK? FUCK AROUND   FUCK OFF FUCK  YOU FUCK UP",
-                          "FUCK  OFF FUCK AROUND WHAT THE FUCK? FUCK YOU FUCK UP",
-                          "FUCK YOU   WHAT  THE FUCK? FUCK   OFF FUCK AROUND FUCK UP",
-                          "FUCK  AROUND   WHAT  THE FUCK? FUCK UP   FUCK OFF FUCK YOU"};
+static const char* phrases[9] = {"LOREM IPSUM DOLOR SIT AMET CONSECTETUR ADIPISCING ELIT",
+                                 "SED DO EIUSMOD TEMPOR INCIDIDUNT UT LABORE ET DOLORE MAGNA",
+                                 "UT ENIM AD MINIM VENIAM QUIS NOSTRUD EXERCITATION",
+                                 "ULLAMCO LABORIS NISI UT ALIQUIP EX EA COMMODO CONSEQUAT",
+                                 "DUIS AUTE IRURE DOLOR IN REPREHENDERIT IN VOLUPTATE",
+                                 "VELIT ESSE CILLUM DOLORE EU FUGIAT NULLA PARIATUR",
+                                 "EXCEPTEUR SINT OCCAECAT CUPIDATAT NON PROIDENT",
+                                 "SUNT IN CULPA QUI OFFICIA DESERUNT MOLLIT ANIM",
+                                 "ID EST LABORUM SED UT PERSPICIATIS UNDE OMNIS"};
 
-void AppTemplatejijiji::onOpen()
+void AppTestClock::onOpen()
 {
     mclog::tagInfo(getAppInfo().name, "on open");
 
@@ -100,36 +100,36 @@ void AppTemplatejijiji::onOpen()
     }
 }
 
-void AppTemplatejijiji::onRunning()
+void AppTestClock::onRunning()
 {
     update_clock();
     lv_timer_handler();
 
     HAL::BtnUpdate();
     if (HAL::BtnPower().wasClicked()) {
-        mclog::info("??");
+        mclog::info("clicked");
     }
     if (HAL::BtnPower().wasDoubleClicked()) {
         mclog::info("bye");
         HAL::SysCtrl().powerOff();
     }
     if (HAL::BtnPower().wasHold()) {
-        mclog::info("jijiji");
+        mclog::info("hold");
     }
 }
 
-void AppTemplatejijiji::onClose()
+void AppTestClock::onClose()
 {
     mclog::tagInfo(getAppInfo().name, "on close");
 }
 
-void AppTemplatejijiji::update_clock()
+void AppTestClock::update_clock()
 {
     if (HAL::SysCtrl().millis() - _clock_time_count < 1000) {
         return;
     }
 
-    mclog::info("hi");
+    mclog::info("tick");
 
     lv_canvas_fill_bg(canvas, COLOR_LOW, LV_OPA_COVER);
 
@@ -138,16 +138,16 @@ void AppTemplatejijiji::update_clock()
     time(&now);
     tm_info = localtime(&now);
 
-    int hour = tm_info->tm_hour % 12; // 12小时制
+    int hour = tm_info->tm_hour % 12; // 12-hour clock
     int minute = tm_info->tm_min;
     int second = tm_info->tm_sec;
 
-    // 计算针的位置
+    // Compute hand angles
     float hour_angle = (hour + minute / 60.0) * 30 * (3.14159 / 180);    // 360 / 12 = 30
     float minute_angle = (minute + second / 60.0) * 6 * (3.14159 / 180); // 360 / 60 = 6
     float second_angle = second * 6 * (3.14159 / 180);                   // 360 / 60 = 6
 
-    // 中心点
+    // Center point
     int center_x = 136 / 2;
     int center_y = 136 / 2;
 

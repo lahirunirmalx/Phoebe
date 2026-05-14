@@ -13,13 +13,13 @@
 namespace hal_components {
 
 /**
- * @brief IMU 组件基类
+ * @brief IMU component base class
  *
  */
 class ImuBase {
 public:
     /**
-     * @brief IMU 数据
+     * @brief IMU data
      *
      */
     struct ImuData_t {
@@ -37,13 +37,13 @@ public:
     virtual void init() {}
 
     /**
-     * @brief 更新 IMU 数据
+     * @brief Update IMU data
      *
      */
     virtual void update() {}
 
     /**
-     * @brief 获取 IMU 数据
+     * @brief Get IMU data
      *
      * @return const ImuData_t&
      */

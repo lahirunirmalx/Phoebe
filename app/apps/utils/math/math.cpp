@@ -19,7 +19,7 @@ int math::getRandomInt(int min, int max)
     return dist(gen);
 }
 
-// 生成 [min, max] 范围内的随机浮点数
+// Generate a random double in the range [min, max]
 double math::getRandomDouble(double min, double max)
 {
     std::random_device rd;

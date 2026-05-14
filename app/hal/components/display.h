@@ -15,22 +15,22 @@
 namespace hal_components {
 
 /**
- * @brief 显示屏基类，提供相对方便直接的绘图接口
+ * @brief Display base class providing convenient drawing APIs
  *
- * 这里直接继承 lgfx::LGFX_Sprite 的图形渲染方法，总不能自己写吧😊
+ * Inherits LGFX_Sprite's graphics rendering methods directly so we don't have to write them ourselves.
  */
 class DisplayBase : public lgfx::LGFX_Sprite {
 public:
     ~DisplayBase() = default;
 
     /**
-     * @brief 在这里要实现 LGFX_Sprite 的 buffer 创建、色深调整等，比如：createSprite(144, 168); setColorDepth(16);
+     * @brief Implement LGFX_Sprite buffer creation and color depth setup here, e.g.: createSprite(144, 168); setColorDepth(16);
      *
      */
     virtual void init() {}
 
     /**
-     * @brief 重置屏幕内容
+     * @brief Reset the screen contents
      *
      */
     void resetScreen()
@@ -41,7 +41,7 @@ public:
     }
 
     /**
-     * @brief 将改动推送到屏幕
+     * @brief Push changes to the display
      *
      */
     void pushToScreen()
@@ -51,7 +51,7 @@ public:
 
 protected:
     /**
-     * @brief 这里要实现 LGFX_Sprite 的 buffer 对屏幕的推送
+     * @brief Implement pushing the LGFX_Sprite buffer to the display here
      *
      * @param buffer
      */

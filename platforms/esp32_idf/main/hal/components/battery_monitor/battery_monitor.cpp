@@ -31,17 +31,17 @@ struct _Data_t {
 };
 static _Data_t* _data = nullptr;
 
-// 监视线程
+// Monitor thread
 static void _daemon_battery_monitor(void* param)
 {
     while (1) {
         _data->mutex.lock();
 
-        // 数据
+        // Data
         _data->bat_voltage = _data->max17048.cellVoltage();
         _data->bat_percentage = _data->max17048.cellPercent();
 
-        // 充电状态
+        // Charging state
         if (digitalRead(HAL_PIN_PWR_IS_USB_IN) == 1) {
             if (_data->bat_state != BatteryState::Charging) {
                 mclog::tagInfo(_tag, "start charging");
@@ -58,9 +58,9 @@ static void _daemon_battery_monitor(void* param)
             }
         }
 
-        // 低电量检测
+        // Low battery detection
         if (_data->bat_state == BatteryState::Normal) {
-            // 一开始就似了
+            // Already dead at startup
             if (round(_data->bat_percentage) < HAL_BATTERY_DEAD_THRESHOLD) {
                 _data->bat_state = BatteryState::Dead;
                 if (_data->on_battery_dead) {
@@ -68,7 +68,7 @@ static void _daemon_battery_monitor(void* param)
                 }
 
             }
-            // 一开始就低，或者正常放电到低
+            // Low at startup, or normally discharged down to low
             else if (round(_data->bat_percentage) < HAL_BATTERY_LOW_THRESHOLD) {
                 _data->bat_state = BatteryState::Low;
                 if (_data->on_battery_low) {
@@ -76,7 +76,7 @@ static void _daemon_battery_monitor(void* param)
                 }
             }
         }
-        // 从低放电到似了
+        // Discharged from low to dead
         else if (_data->bat_state == BatteryState::Low) {
             if (round(_data->bat_percentage) < HAL_BATTERY_DEAD_THRESHOLD) {
                 _data->bat_state = BatteryState::Dead;
@@ -99,7 +99,7 @@ BatteryMonitorMAX17048::BatteryMonitorMAX17048()
 
 BatteryMonitorMAX17048::~BatteryMonitorMAX17048()
 {
-    // 要把线程先关掉，懒得写了
+    // Should stop the thread first; not bothering to write that
     delete _data;
 }
 
@@ -113,14 +113,14 @@ bool BatteryMonitorMAX17048::init()
     _data->bat_state = BatteryState::Normal;
     mclog::tagInfo(_tag, "chip id: 0x{:02X}", _data->max17048.getChipID());
 
-    // USB 接入检测脚
+    // USB-in detection pin
     pinMode(HAL_PIN_PWR_IS_USB_IN, INPUT);
 
-    // 中断脚，懒得用了
+    // Interrupt pin, not bothering to use it
     gpio_reset_pin((gpio_num_t)HAL_PIN_BAT_MON_INT);
     gpio_set_direction((gpio_num_t)HAL_PIN_BAT_MON_INT, GPIO_MODE_DISABLE);
 
-    // 创建监视线程
+    // Create monitor thread
     xTaskCreate(_daemon_battery_monitor, "bm", 3000, NULL, 10, NULL);
 
     return true;

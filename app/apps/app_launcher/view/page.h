@@ -15,7 +15,7 @@
 #include <vector>
 
 /**
- * @brief 启动器页面基类，在 UIAbility 基础上加上二级页面状态，方便二级页面接管按键输入事件
+ * @brief Launcher page base class; extends UIAbility with a sub-page state so sub-pages can take over button input events
  *
  */
 class LauncherPageBase : public mooncake::UIAbility {
