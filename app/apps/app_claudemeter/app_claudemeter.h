@@ -23,6 +23,7 @@
 class AppClaudeMeter : public mooncake::AppAbility {
 public:
     AppClaudeMeter();
+    ~AppClaudeMeter() override;
 
     void onCreate() override;
     void onOpen() override;

@@ -70,6 +70,14 @@ AppClaudeMeter::AppClaudeMeter()
     setAppInfo().name = "AppClaudeMeter";
 }
 
+AppClaudeMeter::~AppClaudeMeter()
+{
+    // Safety net: if onClose() didn't run (e.g. process killed mid-flight),
+    // make sure the fetch thread isn't joinable when std::thread is destroyed.
+    _fetch_stop.store(true);
+    if (_fetch_thread.joinable()) _fetch_thread.join();
+}
+
 void AppClaudeMeter::onCreate()
 {
     mclog::tagInfo(getAppInfo().name, "on create");

@@ -1,3 +1,9 @@
 .vscode
 .cache
 build
+
+# Runtime config -- may contain secrets (bearer tokens, wifi passwords)
+system_config.json
+system_config.json.bk
+wifi_config.json
+claude_config.json
