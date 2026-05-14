@@ -408,6 +408,13 @@ void AppClaudeMeter::_fetch_loop()
             }
         }
 
+        if (ok) {
+            mclog::tagInfo(getAppInfo().name, "fetch ok: 5h={:.1f}% 7d={:.1f}%",
+                           fresh.pct_five_hour, fresh.pct_seven_day);
+        } else {
+            mclog::tagWarn(getAppInfo().name, "fetch err: {}", fresh.last_err);
+        }
+
         // Sleep in short slices so stop is responsive.
         for (int i = 0; i < FETCH_PERIOD_SEC * 4 && !_fetch_stop.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
