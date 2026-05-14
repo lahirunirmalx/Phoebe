@@ -16,6 +16,7 @@
 #include "components/display/display.h"
 #include "components/ble/ble.h"
 #include "components/wifi_manager_std/wifi_manager_std.h"
+#include "components/claude_config_std/claude_config_std.h"
 #include <memory>
 #include <mooncake_log.h>
 #include <lvgl.h>
@@ -41,6 +42,11 @@ void HalDesktop::init()
         _components.wifi->connect();
     }
     _components.wifi->logState();
+
+    // Claude API config (base URL + bearer token).
+    _components.claude_config = std::make_unique<ClaudeConfigStd>();
+    _components.claude_config->load();
+    _components.claude_config->logState();
 
     // Desktop has no real IMU / buzzer / haptic / battery hardware --
     // pre-inject the base stubs so accessors don't lazily allocate and log warnings.
