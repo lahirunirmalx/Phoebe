@@ -30,8 +30,9 @@ void HalDesktop::init()
     _components.button = std::make_unique<ButtonSdl>();
     _components.display = std::make_unique<DisplaySdl>();
     _components.display->init();
-    _components.ble = std::make_unique<BlePython>();
-    _components.ble->init();
+    // BLE not used on this branch -- inject the base stub instead of
+    // spawning the python daemon (which would pop a PyQt5 simulator window).
+    _components.ble = std::make_unique<hal_components::BleBase>();
 
     // WiFi manager (desktop simulation) -- persists SSID/password to a JSON file.
     _components.wifi = std::make_unique<WifiManagerStd>();
