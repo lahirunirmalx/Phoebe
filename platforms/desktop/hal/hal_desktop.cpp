@@ -32,6 +32,13 @@ void HalDesktop::init()
     _components.ble = std::make_unique<BlePython>();
     _components.ble->init();
 
+    // Desktop has no real IMU / buzzer / haptic / battery hardware --
+    // pre-inject the base stubs so accessors don't lazily allocate and log warnings.
+    _components.imu = std::make_unique<hal_components::ImuBase>();
+    _components.buzzer = std::make_unique<hal_components::BuzzerBase>();
+    _components.haptic_engine = std::make_unique<hal_components::HapticEngineBase>();
+    _components.battery_monitor = std::make_unique<hal_components::BatteryMonitorBase>();
+
     // Load the saved configuration
     HAL::SysCfg().loadConfig();
     HAL::SysCfg().logConfig();
@@ -53,21 +60,21 @@ void HalDesktop::lvgl_init()
     auto display = lv_sdl_window_create(HAL_SCREEN_WIDTH, HAL_SCREEN_HEIGHT);
     lv_display_set_default(display);
 
-    // auto mouse = lv_sdl_mouse_create();
-    // lv_indev_set_group(mouse, lv_group_get_default());
-    // lv_indev_set_display(mouse, display);
+    auto mouse = lv_sdl_mouse_create();
+    lv_indev_set_group(mouse, lv_group_get_default());
+    lv_indev_set_display(mouse, display);
 
-    // LV_IMAGE_DECLARE(mouse_cursor_icon); /*Declare the image file.*/
-    // lv_obj_t* cursor_obj;
-    // cursor_obj = lv_image_create(lv_screen_active()); /*Create an image object for the cursor */
-    // lv_image_set_src(cursor_obj, &mouse_cursor_icon); /*Set the image source*/
-    // lv_indev_set_cursor(mouse, cursor_obj);           /*Connect the image  object to the driver*/
+    LV_IMAGE_DECLARE(mouse_cursor_icon); /*Declare the image file.*/
+    lv_obj_t* cursor_obj;
+    cursor_obj = lv_image_create(lv_screen_active()); /*Create an image object for the cursor */
+    lv_image_set_src(cursor_obj, &mouse_cursor_icon); /*Set the image source*/
+    lv_indev_set_cursor(mouse, cursor_obj);           /*Connect the image  object to the driver*/
 
-    // auto mouse_wheel = lv_sdl_mousewheel_create();
-    // lv_indev_set_display(mouse_wheel, display);
-    // lv_indev_set_group(mouse_wheel, lv_group_get_default());
+    auto mouse_wheel = lv_sdl_mousewheel_create();
+    lv_indev_set_display(mouse_wheel, display);
+    lv_indev_set_group(mouse_wheel, lv_group_get_default());
 
-    // auto keyboard = lv_sdl_keyboard_create();
-    // lv_indev_set_display(keyboard, display);
-    // lv_indev_set_group(keyboard, lv_group_get_default());
+    auto keyboard = lv_sdl_keyboard_create();
+    lv_indev_set_display(keyboard, display);
+    lv_indev_set_group(keyboard, lv_group_get_default());
 }

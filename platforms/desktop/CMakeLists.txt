@@ -52,6 +52,7 @@ file(GLOB_RECURSE APP_DESKTOP_BUILD_SRCS
 )
 add_executable(app_desktop_build ${APP_DESKTOP_BUILD_SRCS} ${APP_LAYER_SRCS})
 target_include_directories(app_desktop_build PUBLIC ${APP_LAYER_INCS})
+target_compile_definitions(app_desktop_build PRIVATE PHOEBE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(app_desktop_build PUBLIC 
     mooncake 
     mooncake_log
