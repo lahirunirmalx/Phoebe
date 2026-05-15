@@ -73,6 +73,9 @@ constexpr std::uint8_t SEG7_DIGITS[10] = {
 
 const lv_color_t SEG7_ON = LV_COLOR_MAKE(0xFF, 0x30, 0x30);
 const lv_color_t SEG7_OFF = LV_COLOR_MAKE(0x30, 0x05, 0x05);
+const lv_color_t SEG7_BG = LV_COLOR_MAKE(0x0A, 0x00, 0x00);
+const lv_color_t SEG7_BAR_BG = LV_COLOR_MAKE(0x1A, 0x00, 0x00);
+const lv_color_t SEG7_DATE = LV_COLOR_MAKE(0xA0, 0x30, 0x30);
 
 void draw_seg(lv_layer_t* layer, int x0, int y0, int x1, int y1, lv_color_t color)
 {
@@ -131,6 +134,7 @@ constexpr std::uint8_t VFD_FONT[11][7] = {
 const lv_color_t VFD_BG = LV_COLOR_MAKE(0x00, 0x08, 0x10);
 const lv_color_t VFD_ON = LV_COLOR_MAKE(0x66, 0xFF, 0xCC);
 const lv_color_t VFD_OFF = LV_COLOR_MAKE(0x0E, 0x18, 0x18);
+const lv_color_t VFD_DIM = LV_COLOR_MAKE(0x3F, 0xAA, 0x88);
 
 void draw_vfd_glyph(lv_layer_t* layer, int x, int y, int idx, int dot, int pitch)
 {
@@ -414,6 +418,16 @@ void AppClaudeMeter::_build_clock_animated()
 
 void AppClaudeMeter::_build_clock_seg7()
 {
+    // Full LCD theme: dark red body, red-tinted 5H bar, red date label.
+    lv_obj_set_style_bg_color(_clock_container, SEG7_BG, 0);
+    if (_clock_5h_bar) {
+        lv_obj_set_style_bg_color(_clock_5h_bar, SEG7_BAR_BG, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(_clock_5h_bar, SEG7_ON, LV_PART_INDICATOR);
+    }
+    if (_clock_5h_pct_label) {
+        lv_obj_set_style_text_color(_clock_5h_pct_label, SEG7_DATE, 0);
+    }
+
     // Canvas hosts the 4 large 7-segment digits + a blinking colon.
     constexpr int CW = 124;
     constexpr int CH = 50;
@@ -424,7 +438,7 @@ void AppClaudeMeter::_build_clock_seg7()
     lv_obj_align(_clock_face_canvas, LV_ALIGN_CENTER, 0, -10);
 
     _clock_date_label = lv_label_create(_clock_container);
-    lv_obj_set_style_text_color(_clock_date_label, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_color(_clock_date_label, SEG7_DATE, 0);
     lv_obj_set_style_text_font(_clock_date_label, &lv_font_montserrat_14, 0);
     lv_label_set_text(_clock_date_label, "");
     lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -4);
@@ -432,6 +446,16 @@ void AppClaudeMeter::_build_clock_seg7()
 
 void AppClaudeMeter::_build_clock_vfd()
 {
+    // Full VFD theme: dark teal body, phosphor 5H bar, phosphor date label.
+    lv_obj_set_style_bg_color(_clock_container, VFD_BG, 0);
+    if (_clock_5h_bar) {
+        lv_obj_set_style_bg_color(_clock_5h_bar, VFD_OFF, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(_clock_5h_bar, VFD_ON, LV_PART_INDICATOR);
+    }
+    if (_clock_5h_pct_label) {
+        lv_obj_set_style_text_color(_clock_5h_pct_label, VFD_DIM, 0);
+    }
+
     // Canvas hosts a 5x7 dot-matrix rendition of HH:MM in phosphor green.
     constexpr int CW = 128;
     constexpr int CH = 32;
@@ -442,7 +466,7 @@ void AppClaudeMeter::_build_clock_vfd()
     lv_obj_align(_clock_face_canvas, LV_ALIGN_CENTER, 0, -10);
 
     _clock_date_label = lv_label_create(_clock_container);
-    lv_obj_set_style_text_color(_clock_date_label, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_color(_clock_date_label, VFD_DIM, 0);
     lv_obj_set_style_text_font(_clock_date_label, &lv_font_montserrat_14, 0);
     lv_label_set_text(_clock_date_label, "");
     lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -4);
@@ -565,14 +589,25 @@ void AppClaudeMeter::_update_clock_5h_bar()
     float p5 = (snap.state == Fetch_OK && snap.pct_five_hour >= 0.0f)
                    ? snap.pct_five_hour
                    : _mock_pct_five_hour;
-    lv_color_t c = bar_color_for(p5);
+
+    // For themed faces (seg7 / vfd) the bar colour is part of the face's
+    // visual identity and must NOT flip green/orange/red with the threshold.
+    // Other faces use the usual threshold colour scheme.
+    bool themed = (_watch_face == WF_Seg7 || _watch_face == WF_VFD);
+    lv_color_t c = themed ? lv_obj_get_style_bg_color(_clock_5h_bar, LV_PART_INDICATOR)
+                          : bar_color_for(p5);
+
     lv_bar_set_value(_clock_5h_bar, (int)(p5 + 0.5f), LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(_clock_5h_bar, c, LV_PART_INDICATOR);
+    if (!themed) {
+        lv_obj_set_style_bg_color(_clock_5h_bar, c, LV_PART_INDICATOR);
+    }
 
     char buf[12];
     std::snprintf(buf, sizeof(buf), "5H %d%%", (int)(p5 + 0.5f));
     lv_label_set_text(_clock_5h_pct_label, buf);
-    lv_obj_set_style_text_color(_clock_5h_pct_label, c, 0);
+    if (!themed) {
+        lv_obj_set_style_text_color(_clock_5h_pct_label, c, 0);
+    }
 }
 
 void AppClaudeMeter::_update_clock_analog(const struct tm& tm_info)
