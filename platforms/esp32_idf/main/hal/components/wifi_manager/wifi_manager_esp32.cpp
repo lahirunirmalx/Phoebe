@@ -8,6 +8,7 @@
 #include <WiFi.h>
 #include <mooncake_log.h>
 #include <nvs.h>
+#include <time.h>
 
 static const char* _tag = "wifi";
 static const char* NVS_NS = "wifi";
@@ -76,6 +77,14 @@ bool WifiManagerEsp32::connect()
 
     mclog::tagInfo(_tag, "wifi begin, ssid={}", _ssid);
     WiFi.begin(_ssid.c_str(), _password.c_str());
+
+    // ESP32 has no RTC -- sync system time from NTP as soon as we're online.
+    // configTime() is the Arduino-ESP32 thin wrapper around esp_sntp. It
+    // returns immediately; the actual sync happens once DHCP completes.
+    // Offsets are 0/0 (UTC); set them or call setenv("TZ", ...) elsewhere
+    // if you want local time on the clock face.
+    mclog::tagInfo(_tag, "sntp begin (pool.ntp.org)");
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
     return true;
 }
 

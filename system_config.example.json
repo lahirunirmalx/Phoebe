@@ -1,7 +1,7 @@
 {
   "mute": false,
   "hapticFeedback": true,
-  "watchFace": "",
+  "watchFace": "analog",
   "widgetA": "time",
   "widgetB": "date",
   "claudeBase": "http://127.0.0.1:7878",

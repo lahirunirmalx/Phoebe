@@ -72,7 +72,7 @@ Fields:
 | ---------------- | ---------------------------------------------------- |
 | `mute`           | global mute                                          |
 | `hapticFeedback` | enable haptic motor (ESP32)                          |
-| `watchFace`      | watch-face id (legacy)                               |
+| `watchFace`      | `"analog"` / `"digital"` / `"animated"` — see below  |
 | `widgetA`/`B`    | watch-face widget slots                              |
 | `claudeBase`     | usage server base URL, e.g. `http://127.0.0.1:7878`  |
 | `claudeBearer`   | API token sent as `Authorization: Bearer <token>`    |
@@ -101,15 +101,37 @@ The expected endpoint shape is provided by
 (run it locally and point `claudeBase` at e.g. `http://127.0.0.1:7878`).
 Any service returning the same JSON shape will work just as well.
 
+### Watch faces
+
+`AppClaudeMeter`'s clock view supports three faces, picked at startup
+from the `watchFace` field. All three share the 5H usage bar at the top
+and refresh once per second:
+
+- **`"analog"`** *(default if empty or unknown)*  — Analog clock canvas
+  with hour/minute/second hands; digital time and date pinned to the
+  bottom.
+- **`"digital"`** — Large `HH:MM` centred, smaller `:SS` below in accent
+  colour, date at the bottom.
+- **`"animated"`** — Large `HH:MM` centred behind a continuously-rotating
+  accent arc (driven by `lv_anim_t`, independent of wall time); date at
+  the bottom.
+
+Switch faces by editing `watchFace` in `system_config.json` and
+restarting the binary.
+
 ### Platform notes
 
 - **Desktop.** WiFi is a simulation — the host OS already has WiFi, so
   `connect()` just records the credentials. All fields, including
-  `wifiSsid` / `wifiPassword`, persist in `system_config.json`.
+  `wifiSsid` / `wifiPassword`, persist in `system_config.json`. System
+  time comes from the host clock.
 - **ESP32.** WiFi credentials live in NVS namespace `wifi`
   (`WifiManagerEsp32` is the source of truth there). The `wifiSsid` /
   `wifiPassword` fields in `system_config.json` are unused on ESP32.
-  `claudeBase` / `claudeBearer` still come from `system_config`.
+  `claudeBase` / `claudeBearer` still come from `system_config`. The
+  chip has no RTC, so time is fetched from `pool.ntp.org` via SNTP as
+  soon as the link is up — `configTime()` is called from
+  `WifiManagerEsp32::connect()`.
 
 ---
 

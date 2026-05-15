@@ -14,6 +14,7 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include <ctime>
 #include <mooncake.h>
 #include <mutex>
 #include <string>
@@ -35,7 +36,12 @@ private:
 
     enum FetchState { Fetch_Idle = 0, Fetch_OK, Fetch_Err };
 
+    // Watch-face style. Resolved at onOpen() from SysCfg().watchFace.
+    // "" or "analog" -> WF_Analog; "digital" -> WF_Digital; "animated" -> WF_Animated.
+    enum WatchFace { WF_Analog = 0, WF_Digital, WF_Animated };
+
     View _view = VIEW_CLOCK;
+    WatchFace _watch_face = WF_Analog;
     std::uint32_t _last_tick_ms = 0;
 
     // Background fetch -----------------------------------------------------
@@ -57,14 +63,23 @@ private:
     // Root container fills the screen and owns the click event.
     lv_obj_t* _root = nullptr;
 
-    // Clock view widgets
+    // Clock view widgets (shared across faces)
     lv_obj_t* _clock_container = nullptr;
-    lv_obj_t* _clock_canvas = nullptr;
-    std::uint8_t* _clock_canvas_buf = nullptr;
     lv_obj_t* _clock_time_label = nullptr;
     lv_obj_t* _clock_date_label = nullptr;
     lv_obj_t* _clock_5h_bar = nullptr;
     lv_obj_t* _clock_5h_pct_label = nullptr;
+
+    // Analog-only
+    lv_obj_t* _clock_canvas = nullptr;
+    std::uint8_t* _clock_canvas_buf = nullptr;
+
+    // Digital-only
+    lv_obj_t* _clock_sec_label = nullptr;
+
+    // Animated-only
+    lv_obj_t* _clock_anim_arc = nullptr;
+    lv_anim_t _clock_anim;
 
     // Meter view widgets
     lv_obj_t* _meter_container = nullptr;
@@ -79,11 +94,20 @@ private:
 
     void _build_ui();
     void _build_clock_view();
+    void _build_clock_5h_bar();
+    void _build_clock_analog();
+    void _build_clock_digital();
+    void _build_clock_animated();
     void _build_meter_view();
     void _toggle_view();
     void _show_view(View v);
     void _update_clock();
+    void _update_clock_5h_bar();
+    void _update_clock_analog(const struct tm& tm_info);
+    void _update_clock_digital(const struct tm& tm_info);
+    void _update_clock_animated(const struct tm& tm_info);
     void _update_meter();
+    WatchFace _resolve_watch_face() const;
 
     void _start_fetch_thread();
     void _stop_fetch_thread();
