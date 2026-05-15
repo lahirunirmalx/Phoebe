@@ -618,7 +618,7 @@ void AppClaudeMeter::_update_clock_analog(const struct tm& tm_info)
     std::snprintf(time_buf, sizeof(time_buf), "%02d:%02d", tm_info.tm_hour, tm_info.tm_min);
     lv_label_set_text(_clock_time_label, time_buf);
 
-    char date_buf[24];
+    char date_buf[40];
     std::snprintf(date_buf, sizeof(date_buf), "%04d-%02d-%02d",
                   tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
     lv_label_set_text(_clock_date_label, date_buf);
@@ -663,7 +663,7 @@ void AppClaudeMeter::_update_clock_digital(const struct tm& tm_info)
 {
     if (!_clock_time_label) return;
 
-    char buf[16];
+    char buf[40];
     std::snprintf(buf, sizeof(buf), "%02d:%02d", tm_info.tm_hour, tm_info.tm_min);
     lv_label_set_text(_clock_time_label, buf);
 
@@ -683,7 +683,7 @@ void AppClaudeMeter::_update_clock_animated(const struct tm& tm_info)
 
     // The rotating arc keeps spinning on its own via lv_anim; we just
     // refresh the digital readout in the center.
-    char buf[16];
+    char buf[40];
     std::snprintf(buf, sizeof(buf), "%02d:%02d", tm_info.tm_hour, tm_info.tm_min);
     lv_label_set_text(_clock_time_label, buf);
 
@@ -746,7 +746,7 @@ void AppClaudeMeter::_update_clock_seg7(const struct tm& tm_info)
         lv_canvas_finish_layer(_clock_face_canvas, &layer);
     }
 
-    char buf[24];
+    char buf[40];
     std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
                   tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
     lv_label_set_text(_clock_date_label, buf);
@@ -798,7 +798,7 @@ void AppClaudeMeter::_update_clock_vfd(const struct tm& tm_info)
         lv_canvas_finish_layer(_clock_face_canvas, &layer);
     }
 
-    char buf[24];
+    char buf[40];
     std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
                   tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
     lv_label_set_text(_clock_date_label, buf);
@@ -891,8 +891,10 @@ void AppClaudeMeter::_fetch_loop()
             mclog::tagWarn(getAppInfo().name, "fetch err: {}", fresh.last_err);
         }
 
-        // Sleep in short slices so stop is responsive.
-        for (int i = 0; i < FETCH_PERIOD_SEC * 4 && !_fetch_stop.load(); ++i) {
+        // Back off 5 minutes after a good fetch, but retry every 5 seconds
+        // while we're erroring (typically waiting on WiFi to associate).
+        int wait_sec = ok ? FETCH_PERIOD_SEC : 5;
+        for (int i = 0; i < wait_sec * 4 && !_fetch_stop.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
         }
     }
@@ -915,7 +917,7 @@ bool AppClaudeMeter::_fetch_once(Snapshot& out)
         return false;
     }
     if (resp.http_code != 200) {
-        char buf[24];
+        char buf[40];
         std::snprintf(buf, sizeof(buf), "HTTP %d", resp.http_code);
         out.last_err = buf;
         return false;

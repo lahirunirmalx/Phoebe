@@ -1,15 +1,18 @@
-idf_component_register(
-    SRCS
-        "app_main.cpp"
-        "oled/ssd1306.cpp"
-        "oled/font5x8.cpp"
-    INCLUDE_DIRS
-        "."
-    REQUIRES
-        driver
-        nvs_flash
-        esp_wifi
-        esp_event
-        esp_netif
-        lwip
+file(GLOB_RECURSE APP_LAYER_SRCS
+    ../../../app/*.c
+    ../../../app/*.cc
+    ../../../app/*.cpp
 )
+
+set(APP_LAYER_INCS
+    ../../../app
+)
+
+file(GLOB_RECURSE MY_HAL_SRCS
+    ./hal/*.c
+    ./hal/*.cc
+    ./hal/*.cpp
+)
+
+idf_component_register(SRCS "app_main.cpp" ${APP_LAYER_SRCS} ${MY_HAL_SRCS}
+                    INCLUDE_DIRS "." ${APP_LAYER_INCS})
