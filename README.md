@@ -4,6 +4,10 @@ Going open source — feel free to compile and play around if you're interested.
 
 - Demo video: [bilibili.com/video/BV1qCBBYkEXS](https://www.bilibili.com/video/BV1qCBBYkEXS)
 - Hardware: [oshwhub.com/eedadada/phoebe-4-real](https://oshwhub.com/eedadada/phoebe-4-real)
+- Sister project (data source for `AppClaudeMeter`):
+  [github.com/lahirunirmalx/claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter)
+  — tiny local HTTP server + Prometheus exporter for Claude Code's
+  `/usage` data. Point `claude_config.json` at it; see **Configuration**.
 
 ---
 
@@ -96,6 +100,11 @@ CSV used on the Cardputer works unchanged on the ESP32 build of phoebe.
 The HTTP fetcher hits `<base>/usage` with `Authorization: Bearer <token>`
 and parses `five_hour.utilization` / `seven_day.utilization` out of the
 JSON response. Bar colors: green (<70%), orange (70–90%), red (≥90%).
+
+The expected endpoint shape is provided by
+[claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter)
+(run it locally and point `base` at e.g. `http://127.0.0.1:7878`). Any
+service returning the same JSON shape will work just as well.
 
 ---
 
