@@ -48,6 +48,117 @@ lv_color_t bar_color_for(float pct)
     return COLOR_OK;
 }
 
+/* ---------------- 7-segment rendering ---------------- */
+
+// Bit i set if segment i is on. Order: a b c d e f g.
+//   aaa
+//  f   b
+//  f   b
+//   ggg
+//  e   c
+//  e   c
+//   ddd
+constexpr std::uint8_t SEG7_DIGITS[10] = {
+    0b0111111, // 0: a b c d e f
+    0b0000110, // 1: b c
+    0b1011011, // 2: a b d e g
+    0b1001111, // 3: a b c d g
+    0b1100110, // 4: b c f g
+    0b1101101, // 5: a c d f g
+    0b1111101, // 6: a c d e f g
+    0b0000111, // 7: a b c
+    0b1111111, // 8: all
+    0b1101111, // 9: a b c d f g
+};
+
+const lv_color_t SEG7_ON = LV_COLOR_MAKE(0xFF, 0x30, 0x30);
+const lv_color_t SEG7_OFF = LV_COLOR_MAKE(0x30, 0x05, 0x05);
+
+void draw_seg(lv_layer_t* layer, int x0, int y0, int x1, int y1, lv_color_t color)
+{
+    lv_draw_rect_dsc_t r;
+    lv_draw_rect_dsc_init(&r);
+    r.bg_color = color;
+    r.bg_opa = LV_OPA_COVER;
+    lv_area_t a = {x0, y0, x1 - 1, y1 - 1};
+    lv_draw_rect(layer, &r, &a);
+}
+
+void draw_seg7_digit(lv_layer_t* layer, int x, int y, int digit, int dw, int dh, int t)
+{
+    std::uint8_t mask = (digit >= 0 && digit <= 9) ? SEG7_DIGITS[digit] : 0;
+    int mid = dh / 2;
+    auto seg = [&](int sx0, int sy0, int sx1, int sy1, int bit) {
+        draw_seg(layer, x + sx0, y + sy0, x + sx1, y + sy1, (mask & (1 << bit)) ? SEG7_ON : SEG7_OFF);
+    };
+    seg(t, 0, dw - t, t, 0);                    // a
+    seg(dw - t, t, dw, mid, 1);                 // b
+    seg(dw - t, mid, dw, dh - t, 2);            // c
+    seg(t, dh - t, dw - t, dh, 3);              // d
+    seg(0, mid, t, dh - t, 4);                  // e
+    seg(0, t, t, mid, 5);                       // f
+    seg(t, mid - t / 2, dw - t, mid + t / 2, 6); // g
+}
+
+void draw_seg7_colon(lv_layer_t* layer, int x, int y, int w, int h, bool on)
+{
+    int dot = 4;
+    lv_color_t c = on ? SEG7_ON : SEG7_OFF;
+    int cx = x + (w - dot) / 2;
+    int y1 = y + h / 3 - dot / 2;
+    int y2 = y + 2 * h / 3 - dot / 2;
+    draw_seg(layer, cx, y1, cx + dot, y1 + dot, c);
+    draw_seg(layer, cx, y2, cx + dot, y2 + dot, c);
+}
+
+/* ---------------- VFD 5x7 dot-matrix font ----------------
+ * Each glyph is 7 rows of 5 bits (MSB = leftmost pixel).
+ * Index 0..9 == digits '0'..'9', index 10 == ':' (colon). */
+constexpr std::uint8_t VFD_FONT[11][7] = {
+    {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E}, // 0
+    {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E}, // 1
+    {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F}, // 2
+    {0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E}, // 3
+    {0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01}, // 4
+    {0x1F, 0x10, 0x10, 0x1E, 0x01, 0x11, 0x0E}, // 5
+    {0x0E, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x0E}, // 6
+    {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08}, // 7
+    {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E}, // 8
+    {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x01, 0x0E}, // 9
+    {0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00}, // :
+};
+
+const lv_color_t VFD_BG = LV_COLOR_MAKE(0x00, 0x08, 0x10);
+const lv_color_t VFD_ON = LV_COLOR_MAKE(0x66, 0xFF, 0xCC);
+const lv_color_t VFD_OFF = LV_COLOR_MAKE(0x0E, 0x18, 0x18);
+
+void draw_vfd_glyph(lv_layer_t* layer, int x, int y, int idx, int dot, int pitch)
+{
+    if (idx < 0 || idx > 10) return;
+    lv_draw_rect_dsc_t r_on;
+    lv_draw_rect_dsc_init(&r_on);
+    r_on.bg_color = VFD_ON;
+    r_on.bg_opa = LV_OPA_COVER;
+    r_on.radius = LV_RADIUS_CIRCLE;
+
+    lv_draw_rect_dsc_t r_off;
+    lv_draw_rect_dsc_init(&r_off);
+    r_off.bg_color = VFD_OFF;
+    r_off.bg_opa = LV_OPA_COVER;
+    r_off.radius = LV_RADIUS_CIRCLE;
+
+    for (int row = 0; row < 7; row++) {
+        std::uint8_t bits = VFD_FONT[idx][row];
+        for (int col = 0; col < 5; col++) {
+            int px = x + col * pitch;
+            int py = y + row * pitch;
+            lv_area_t a = {px, py, px + dot - 1, py + dot - 1};
+            bool on = bits & (1 << (4 - col));
+            lv_draw_rect(layer, on ? &r_on : &r_off, &a);
+        }
+    }
+}
+
 std::string trim_trailing_slash(const std::string& s)
 {
     size_t end = s.size();
@@ -84,9 +195,16 @@ void AppClaudeMeter::onOpen()
     lv_obj_set_style_bg_color(lv_screen_active(), COLOR_BG, 0);
 
     _watch_face = _resolve_watch_face();
-    mclog::tagInfo(getAppInfo().name, "watch face: {}",
-                   _watch_face == WF_Digital ? "digital" :
-                   _watch_face == WF_Animated ? "animated" : "analog");
+    const char* wf_name = "analog";
+    switch (_watch_face) {
+        case WF_Digital:  wf_name = "digital";  break;
+        case WF_Animated: wf_name = "animated"; break;
+        case WF_Seg7:     wf_name = "seg7";     break;
+        case WF_VFD:      wf_name = "vfd";      break;
+        case WF_Analog:
+        default:          wf_name = "analog";   break;
+    }
+    mclog::tagInfo(getAppInfo().name, "watch face: {}", wf_name);
 
     _build_ui();
     _show_view(_view);
@@ -139,6 +257,8 @@ void AppClaudeMeter::onClose()
     }
     delete[] _clock_canvas_buf;
     _clock_canvas_buf = nullptr;
+    delete[] _clock_face_canvas_buf;
+    _clock_face_canvas_buf = nullptr;
 }
 
 void AppClaudeMeter::_build_ui()
@@ -161,6 +281,8 @@ AppClaudeMeter::WatchFace AppClaudeMeter::_resolve_watch_face() const
     const auto& wf = HAL::SysCfg().getConfig().watchFace;
     if (wf == "digital") return WF_Digital;
     if (wf == "animated") return WF_Animated;
+    if (wf == "seg7") return WF_Seg7;
+    if (wf == "vfd") return WF_VFD;
     return WF_Analog;
 }
 
@@ -179,6 +301,8 @@ void AppClaudeMeter::_build_clock_view()
     switch (_watch_face) {
         case WF_Digital:  _build_clock_digital();  break;
         case WF_Animated: _build_clock_animated(); break;
+        case WF_Seg7:     _build_clock_seg7();     break;
+        case WF_VFD:      _build_clock_vfd();      break;
         case WF_Analog:
         default:          _build_clock_analog();   break;
     }
@@ -288,6 +412,42 @@ void AppClaudeMeter::_build_clock_animated()
     lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -4);
 }
 
+void AppClaudeMeter::_build_clock_seg7()
+{
+    // Canvas hosts the 4 large 7-segment digits + a blinking colon.
+    constexpr int CW = 124;
+    constexpr int CH = 50;
+    _clock_face_canvas_buf = new std::uint8_t[CW * CH * 2];
+    _clock_face_canvas = lv_canvas_create(_clock_container);
+    lv_canvas_set_buffer(_clock_face_canvas, _clock_face_canvas_buf, CW, CH,
+                         LV_COLOR_FORMAT_RGB565);
+    lv_obj_align(_clock_face_canvas, LV_ALIGN_CENTER, 0, -10);
+
+    _clock_date_label = lv_label_create(_clock_container);
+    lv_obj_set_style_text_color(_clock_date_label, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(_clock_date_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_clock_date_label, "");
+    lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -4);
+}
+
+void AppClaudeMeter::_build_clock_vfd()
+{
+    // Canvas hosts a 5x7 dot-matrix rendition of HH:MM in phosphor green.
+    constexpr int CW = 128;
+    constexpr int CH = 32;
+    _clock_face_canvas_buf = new std::uint8_t[CW * CH * 2];
+    _clock_face_canvas = lv_canvas_create(_clock_container);
+    lv_canvas_set_buffer(_clock_face_canvas, _clock_face_canvas_buf, CW, CH,
+                         LV_COLOR_FORMAT_RGB565);
+    lv_obj_align(_clock_face_canvas, LV_ALIGN_CENTER, 0, -10);
+
+    _clock_date_label = lv_label_create(_clock_container);
+    lv_obj_set_style_text_color(_clock_date_label, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(_clock_date_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_clock_date_label, "");
+    lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -4);
+}
+
 void AppClaudeMeter::_build_meter_view()
 {
     _meter_container = lv_obj_create(_root);
@@ -386,6 +546,8 @@ void AppClaudeMeter::_update_clock()
     switch (_watch_face) {
         case WF_Digital:  _update_clock_digital(*tm_info);  break;
         case WF_Animated: _update_clock_animated(*tm_info); break;
+        case WF_Seg7:     _update_clock_seg7(*tm_info);     break;
+        case WF_VFD:      _update_clock_vfd(*tm_info);      break;
         case WF_Analog:
         default:          _update_clock_analog(*tm_info);   break;
     }
@@ -490,6 +652,118 @@ void AppClaudeMeter::_update_clock_animated(const struct tm& tm_info)
     std::snprintf(buf, sizeof(buf), "%02d:%02d", tm_info.tm_hour, tm_info.tm_min);
     lv_label_set_text(_clock_time_label, buf);
 
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
+                  tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
+    lv_label_set_text(_clock_date_label, buf);
+}
+
+void AppClaudeMeter::_update_clock_seg7(const struct tm& tm_info)
+{
+    if (!_clock_face_canvas) return;
+    // Cheap diff: only redraw when the second has actually advanced --
+    // the colon blinks per second, the digits change per minute.
+    if (tm_info.tm_sec == _clock_last_sec) {
+        // still update the date label outside the canvas
+    } else {
+        _clock_last_sec = tm_info.tm_sec;
+
+        constexpr int CW = 124;
+        constexpr int CH = 50;
+        constexpr int DW = 20;
+        constexpr int DH = 44;
+        constexpr int T = 4;
+        constexpr int GAP = 4;
+        constexpr int COLON_W = 10;
+
+        lv_canvas_fill_bg(_clock_face_canvas, SEG7_OFF, LV_OPA_TRANSP);
+        // wipe the whole canvas to a darker bg first
+        lv_draw_rect_dsc_t bg;
+        lv_draw_rect_dsc_init(&bg);
+        bg.bg_color = LV_COLOR_MAKE(0x0A, 0x00, 0x00);
+        bg.bg_opa = LV_OPA_COVER;
+
+        lv_layer_t layer;
+        lv_canvas_init_layer(_clock_face_canvas, &layer);
+
+        lv_area_t whole = {0, 0, CW - 1, CH - 1};
+        lv_draw_rect(&layer, &bg, &whole);
+
+        // total: 4 digits + colon + 4 gaps
+        int total_w = 4 * DW + COLON_W + 4 * GAP;
+        int x = (CW - total_w) / 2;
+        int y = (CH - DH) / 2;
+
+        int h1 = tm_info.tm_hour / 10;
+        int h2 = tm_info.tm_hour % 10;
+        int m1 = tm_info.tm_min / 10;
+        int m2 = tm_info.tm_min % 10;
+
+        draw_seg7_digit(&layer, x, y, h1, DW, DH, T);
+        x += DW + GAP;
+        draw_seg7_digit(&layer, x, y, h2, DW, DH, T);
+        x += DW + GAP;
+        draw_seg7_colon(&layer, x, y, COLON_W, DH, tm_info.tm_sec % 2 == 0);
+        x += COLON_W + GAP;
+        draw_seg7_digit(&layer, x, y, m1, DW, DH, T);
+        x += DW + GAP;
+        draw_seg7_digit(&layer, x, y, m2, DW, DH, T);
+
+        lv_canvas_finish_layer(_clock_face_canvas, &layer);
+    }
+
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
+                  tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
+    lv_label_set_text(_clock_date_label, buf);
+}
+
+void AppClaudeMeter::_update_clock_vfd(const struct tm& tm_info)
+{
+    if (!_clock_face_canvas) return;
+
+    if (tm_info.tm_sec != _clock_last_sec) {
+        _clock_last_sec = tm_info.tm_sec;
+
+        constexpr int CW = 128;
+        constexpr int CH = 32;
+        constexpr int DOT = 3;
+        constexpr int PITCH = 4;
+        constexpr int GLYPH_W = 5 * PITCH; // 20
+        constexpr int GLYPH_GAP = 4;
+        // HH:MM = 5 glyphs separated by GLYPH_GAP
+        constexpr int TOTAL_W = 5 * GLYPH_W + 4 * GLYPH_GAP;
+        constexpr int TOTAL_H = 7 * PITCH;
+
+        lv_draw_rect_dsc_t bg;
+        lv_draw_rect_dsc_init(&bg);
+        bg.bg_color = VFD_BG;
+        bg.bg_opa = LV_OPA_COVER;
+
+        lv_layer_t layer;
+        lv_canvas_init_layer(_clock_face_canvas, &layer);
+
+        lv_area_t whole = {0, 0, CW - 1, CH - 1};
+        lv_draw_rect(&layer, &bg, &whole);
+
+        int x = (CW - TOTAL_W) / 2;
+        int y = (CH - TOTAL_H) / 2;
+
+        int idxs[5] = {
+            tm_info.tm_hour / 10,
+            tm_info.tm_hour % 10,
+            10, // colon
+            tm_info.tm_min / 10,
+            tm_info.tm_min % 10,
+        };
+        for (int i = 0; i < 5; i++) {
+            draw_vfd_glyph(&layer, x, y, idxs[i], DOT, PITCH);
+            x += GLYPH_W + GLYPH_GAP;
+        }
+
+        lv_canvas_finish_layer(_clock_face_canvas, &layer);
+    }
+
+    char buf[24];
     std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
                   tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
     lv_label_set_text(_clock_date_label, buf);

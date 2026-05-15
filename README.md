@@ -68,16 +68,16 @@ $EDITOR system_config.json
 
 Fields:
 
-| Key              | Purpose                                              |
-| ---------------- | ---------------------------------------------------- |
-| `mute`           | global mute                                          |
-| `hapticFeedback` | enable haptic motor (ESP32)                          |
-| `watchFace`      | `"analog"` / `"digital"` / `"animated"` — see below  |
-| `widgetA`/`B`    | watch-face widget slots                              |
-| `claudeBase`     | usage server base URL, e.g. `http://127.0.0.1:7878`  |
-| `claudeBearer`   | API token sent as `Authorization: Bearer <token>`    |
-| `wifiSsid`       | WiFi SSID (desktop sim records it, ESP32 ignores it) |
-| `wifiPassword`   | WiFi password (same)                                 |
+| Key              | Purpose                                                                  |
+| ---------------- | ------------------------------------------------------------------------ |
+| `mute`           | global mute                                                              |
+| `hapticFeedback` | enable haptic motor (ESP32)                                              |
+| `watchFace`      | `"analog"` / `"digital"` / `"animated"` / `"seg7"` / `"vfd"` (see below) |
+| `widgetA`/`B`    | watch-face widget slots                                                  |
+| `claudeBase`     | usage server base URL, e.g. `http://127.0.0.1:7878`                      |
+| `claudeBearer`   | API token sent as `Authorization: Bearer <token>`                        |
+| `wifiSsid`       | WiFi SSID (desktop sim records it, ESP32 ignores it)                     |
+| `wifiPassword`   | WiFi password (same)                                                     |
 
 Any of the four secret fields can also be seeded via env vars on first
 run; the desktop impl writes them into `system_config.json` for you.
@@ -115,6 +115,14 @@ and refresh once per second:
 - **`"animated"`** — Large `HH:MM` centred behind a continuously-rotating
   accent arc (driven by `lv_anim_t`, independent of wall time); date at
   the bottom.
+- **`"seg7"`** — Classic 7-segment LCD display: four red digits + a
+  blinking colon drawn on an LVGL canvas. Lit segments are bright red
+  (`#FF3030`), unlit segments stay visible as a dim red (`#300505`) so
+  you can read the "off" segments like on a real LCD.
+- **`"vfd"`** — VFD-style 5×7 dot-matrix on a dark teal background.
+  Each character is rendered as a grid of phosphor-coloured circular
+  dots (`#66FFCC`), unlit positions drawn as dim dots (`#0E1818`).
+  Font is a small inline glyph table for digits `0–9` and `:`.
 
 Switch faces by editing `watchFace` in `system_config.json` and
 restarting the binary.

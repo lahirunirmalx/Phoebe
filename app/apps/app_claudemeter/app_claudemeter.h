@@ -37,8 +37,9 @@ private:
     enum FetchState { Fetch_Idle = 0, Fetch_OK, Fetch_Err };
 
     // Watch-face style. Resolved at onOpen() from SysCfg().watchFace.
-    // "" or "analog" -> WF_Analog; "digital" -> WF_Digital; "animated" -> WF_Animated.
-    enum WatchFace { WF_Analog = 0, WF_Digital, WF_Animated };
+    // ""/"analog" -> WF_Analog; "digital" -> WF_Digital; "animated" -> WF_Animated;
+    // "seg7" -> WF_Seg7 (7-segment LCD); "vfd" -> WF_VFD (5x7 dot-matrix).
+    enum WatchFace { WF_Analog = 0, WF_Digital, WF_Animated, WF_Seg7, WF_VFD };
 
     View _view = VIEW_CLOCK;
     WatchFace _watch_face = WF_Analog;
@@ -81,6 +82,11 @@ private:
     lv_obj_t* _clock_anim_arc = nullptr;
     lv_anim_t _clock_anim;
 
+    // Seg7 / VFD: canvas + backing buffer + last drawn second for cheap diffing.
+    lv_obj_t* _clock_face_canvas = nullptr;
+    std::uint8_t* _clock_face_canvas_buf = nullptr;
+    int _clock_last_sec = -1;
+
     // Meter view widgets
     lv_obj_t* _meter_container = nullptr;
     lv_obj_t* _meter_title_label = nullptr;
@@ -98,6 +104,8 @@ private:
     void _build_clock_analog();
     void _build_clock_digital();
     void _build_clock_animated();
+    void _build_clock_seg7();
+    void _build_clock_vfd();
     void _build_meter_view();
     void _toggle_view();
     void _show_view(View v);
@@ -106,6 +114,8 @@ private:
     void _update_clock_analog(const struct tm& tm_info);
     void _update_clock_digital(const struct tm& tm_info);
     void _update_clock_animated(const struct tm& tm_info);
+    void _update_clock_seg7(const struct tm& tm_info);
+    void _update_clock_vfd(const struct tm& tm_info);
     void _update_meter();
     WatchFace _resolve_watch_face() const;
 
