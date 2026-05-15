@@ -160,3 +160,12 @@ hal_components::ClaudeConfigBase& HAL::HalBase::ClaudeCfg()
     }
     return *_components.claude_config.get();
 }
+
+hal_components::HttpClientBase& HAL::HalBase::Http()
+{
+    if (!_components.http_client) {
+        mclog::tagWarn(_tag, "getting null http_client component");
+        _components.http_client = std::make_unique<hal_components::HttpClientBase>();
+    }
+    return *_components.http_client.get();
+}

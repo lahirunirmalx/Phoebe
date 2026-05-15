@@ -11,7 +11,6 @@
 #include <cmath>
 #include <cstdio>
 #include <ctime>
-#include <curl/curl.h>
 #include <mooncake_log.h>
 #include <lvgl.h>
 
@@ -47,13 +46,6 @@ lv_color_t bar_color_for(float pct)
     if (pct >= DANGER_THRESHOLD) return COLOR_DANGER;
     if (pct >= WARN_THRESHOLD) return COLOR_WARN;
     return COLOR_OK;
-}
-
-size_t curl_collect(void* contents, size_t size, size_t nmemb, void* userp)
-{
-    auto* s = static_cast<std::string*>(userp);
-    s->append(static_cast<char*>(contents), size * nmemb);
-    return size * nmemb;
 }
 
 std::string trim_trailing_slash(const std::string& s)
@@ -468,44 +460,21 @@ bool AppClaudeMeter::_fetch_once(Snapshot& out)
     }
 
     std::string url = trim_trailing_slash(cfg.getBaseUrl()) + "/usage";
-    std::string auth_header = "Authorization: Bearer " + cfg.getBearer();
+    auto resp = HAL::Http().get(url, cfg.getBearer(), FETCH_TIMEOUT_SEC);
 
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        out.last_err = "curl init";
+    if (resp.http_code == 0) {
+        out.last_err = resp.error.empty() ? std::string("net err") : resp.error;
         return false;
     }
-
-    std::string body;
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, auth_header.c_str());
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_collect);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)FETCH_TIMEOUT_SEC);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
-    CURLcode rc = curl_easy_perform(curl);
-    long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
-    if (rc != CURLE_OK) {
-        out.last_err = std::string("net: ") + curl_easy_strerror(rc);
-        return false;
-    }
-    if (http_code != 200) {
+    if (resp.http_code != 200) {
         char buf[24];
-        std::snprintf(buf, sizeof(buf), "HTTP %ld", http_code);
+        std::snprintf(buf, sizeof(buf), "HTTP %d", resp.http_code);
         out.last_err = buf;
         return false;
     }
 
     JsonDocument doc;
-    if (deserializeJson(doc, body) != DeserializationError::Ok) {
+    if (deserializeJson(doc, resp.body) != DeserializationError::Ok) {
         out.last_err = "bad json";
         return false;
     }

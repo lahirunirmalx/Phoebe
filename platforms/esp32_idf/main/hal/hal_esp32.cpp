@@ -20,6 +20,7 @@
 #include "components/display/display.h"
 #include "components/wifi_manager/wifi_manager_esp32.h"
 #include "components/claude_config/claude_config_esp32.h"
+#include "components/http_client/http_client_arduino.h"
 extern "C" {
 #include "components/utils/wear_levelling/wear_levelling.h"
 }
@@ -86,6 +87,9 @@ void HalEsp32::init()
     _components.claude_config = std::make_unique<ClaudeConfigEsp32>();
     _components.claude_config->load();
     _components.claude_config->logState();
+
+    // HTTP client (Arduino HTTPClient on ESP32).
+    _components.http_client = std::make_unique<HttpClientArduino>();
 
     hal_test();
 }
