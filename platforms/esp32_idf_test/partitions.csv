@@ -1,0 +1,7 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# Mirrors the M5Cardputer-UserDemo layout so the same tools/flash_nvs.sh
+# (which writes 0x5000 bytes at 0x9000) works unchanged.
+nvs,      data, nvs,     0x9000,  0x5000,
+phy_init, data, phy,     0xf000,  0x1000,
+factory,  app,  factory, 0x10000, 1M,
+storage,  data, fat,     ,        512K,

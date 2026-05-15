@@ -1,0 +1,15 @@
+idf_component_register(
+    SRCS
+        "app_main.cpp"
+        "oled/ssd1306.cpp"
+        "oled/font5x8.cpp"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        driver
+        nvs_flash
+        esp_wifi
+        esp_event
+        esp_netif
+        lwip
+)
