@@ -152,15 +152,6 @@ hal_components::WifiManagerBase& HAL::HalBase::Wifi()
     return *_components.wifi.get();
 }
 
-hal_components::ClaudeConfigBase& HAL::HalBase::ClaudeCfg()
-{
-    if (!_components.claude_config) {
-        mclog::tagWarn(_tag, "getting null claude_config component");
-        _components.claude_config = std::make_unique<hal_components::ClaudeConfigBase>();
-    }
-    return *_components.claude_config.get();
-}
-
 hal_components::HttpClientBase& HAL::HalBase::Http()
 {
     if (!_components.http_client) {

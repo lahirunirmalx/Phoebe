@@ -26,7 +26,18 @@ public:
         std::string watchFace;
         std::string widgetA = "time";
         std::string widgetB = "date";
+
+        // Claude usage endpoint (consumed by AppClaudeMeter).
+        // base: e.g. "http://127.0.0.1:7878"
+        // bearer: opaque API token sent as "Authorization: Bearer <token>"
+        std::string claudeBase;
+        std::string claudeBearer;
     };
+
+    bool isClaudeReady() const
+    {
+        return !_config.claudeBase.empty() && !_config.claudeBearer.empty();
+    }
 
     ~SystemConfigBase() = default;
 

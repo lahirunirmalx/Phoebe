@@ -7,7 +7,8 @@ Going open source — feel free to compile and play around if you're interested.
 - Sister project (data source for `AppClaudeMeter`):
   [github.com/lahirunirmalx/claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter)
   — tiny local HTTP server + Prometheus exporter for Claude Code's
-  `/usage` data. Point `claude_config.json` at it; see **Configuration**.
+  `/usage` data. Set its base URL + bearer in `system_config.json`; see
+  **Configuration**.
 
 ---
 
@@ -55,8 +56,46 @@ the Claude meter view.
 
 ## Configuration
 
-Two runtime configs live next to the binary's working directory and are
-**gitignored** because they contain secrets. Templates are provided.
+Runtime configs live next to the binary's working directory and are
+**gitignored** because they contain secrets. Committed templates show
+the schema.
+
+### App preferences + Claude endpoint (`system_config.json`)
+
+```bash
+cp system_config.example.json system_config.json
+$EDITOR system_config.json
+```
+
+Fields:
+
+| Key              | Purpose                                              |
+| ---------------- | ---------------------------------------------------- |
+| `mute`           | global mute                                          |
+| `hapticFeedback` | enable haptic motor (ESP32)                          |
+| `watchFace`      | watch-face id (legacy)                               |
+| `widgetA`/`B`    | watch-face widget slots                              |
+| `claudeBase`     | usage server base URL, e.g. `http://127.0.0.1:7878`  |
+| `claudeBearer`   | API token sent as `Authorization: Bearer <token>`    |
+
+Or seed the Claude fields via env vars on first run; the desktop impl
+will write them into `system_config.json` for you:
+
+```bash
+PHOEBE_CLAUDE_BASE=http://127.0.0.1:7878 \
+PHOEBE_CLAUDE_BEARER=sk-... \
+  ./build/desktop/app_desktop_build
+```
+
+The HTTP fetcher hits `<claudeBase>/usage` with `Authorization: Bearer
+<claudeBearer>` and parses `five_hour.utilization` /
+`seven_day.utilization` out of the JSON response. Bar colors:
+green (<70%), orange (70–90%), red (≥90%).
+
+The expected endpoint shape is provided by
+[claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter)
+(run it locally and point `claudeBase` at e.g. `http://127.0.0.1:7878`).
+Any service returning the same JSON shape will work just as well.
 
 ### WiFi credentials (`wifi_config.json`)
 
@@ -65,8 +104,7 @@ cp wifi_config.example.json wifi_config.json
 $EDITOR wifi_config.json
 ```
 
-Or seed them via env vars on first run; the desktop impl will write the
-JSON for you:
+Or seed via env vars on first run:
 
 ```bash
 PHOEBE_WIFI_SSID=mywifi PHOEBE_WIFI_PASSWORD=secret \
@@ -77,34 +115,6 @@ On desktop the WiFi manager is a simulation — the OS already has WiFi,
 so `connect()` just records the credentials. On ESP32 it actually drives
 the radio (Arduino `WiFi.begin()`) with credentials persisted to NVS
 namespace `wifi`.
-
-### Claude API endpoint (`claude_config.json`)
-
-```bash
-cp claude_config.example.json claude_config.json
-$EDITOR claude_config.json
-```
-
-Or seed via env vars:
-
-```bash
-PHOEBE_CLAUDE_BASE=http://127.0.0.1:7878 \
-PHOEBE_CLAUDE_BEARER=sk-... \
-  ./build/desktop/app_desktop_build
-```
-
-Schema is intentionally identical to the M5Cardputer-UserDemo NVS layout
-(`claude` namespace, keys `base` / `bearer`), so the same `flash_nvs.sh`
-CSV used on the Cardputer works unchanged on the ESP32 build of phoebe.
-
-The HTTP fetcher hits `<base>/usage` with `Authorization: Bearer <token>`
-and parses `five_hour.utilization` / `seven_day.utilization` out of the
-JSON response. Bar colors: green (<70%), orange (70–90%), red (≥90%).
-
-The expected endpoint shape is provided by
-[claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter)
-(run it locally and point `base` at e.g. `http://127.0.0.1:7878`). Any
-service returning the same JSON shape will work just as well.
 
 ---
 

@@ -21,7 +21,6 @@
 #include "components/button.h"
 #include "components/ble.h"
 #include "components/wifi_manager.h"
-#include "components/claude_config.h"
 #include "components/http_client.h"
 
 /**
@@ -77,7 +76,6 @@ public:
     hal_components::ButtonBase& Button();
     hal_components::BleBase& Ble();
     hal_components::WifiManagerBase& Wifi();
-    hal_components::ClaudeConfigBase& ClaudeCfg();
     hal_components::HttpClientBase& Http();
 
 protected:
@@ -93,7 +91,6 @@ protected:
         std::unique_ptr<hal_components::ButtonBase> button;
         std::unique_ptr<hal_components::BleBase> ble;
         std::unique_ptr<hal_components::WifiManagerBase> wifi;
-        std::unique_ptr<hal_components::ClaudeConfigBase> claude_config;
         std::unique_ptr<hal_components::HttpClientBase> http_client;
     };
     Components_t _components;
@@ -180,10 +177,6 @@ inline hal_components::BleBase& Ble()
 inline hal_components::WifiManagerBase& Wifi()
 {
     return Get().Wifi();
-}
-inline hal_components::ClaudeConfigBase& ClaudeCfg()
-{
-    return Get().ClaudeCfg();
 }
 inline hal_components::HttpClientBase& Http()
 {

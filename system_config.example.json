@@ -1,0 +1,9 @@
+{
+  "mute": false,
+  "hapticFeedback": true,
+  "watchFace": "",
+  "widgetA": "time",
+  "widgetB": "date",
+  "claudeBase": "http://127.0.0.1:7878",
+  "claudeBearer": "YOUR_BEARER_TOKEN"
+}

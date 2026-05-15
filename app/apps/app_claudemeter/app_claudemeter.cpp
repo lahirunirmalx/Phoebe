@@ -453,14 +453,15 @@ void AppClaudeMeter::_fetch_loop()
 
 bool AppClaudeMeter::_fetch_once(Snapshot& out)
 {
-    auto& cfg = HAL::ClaudeCfg();
-    if (!cfg.isReady()) {
+    auto& sys = HAL::Get();
+    if (!sys.SysCfg().isClaudeReady()) {
         out.last_err = "no cfg";
         return false;
     }
+    const auto& cfg = sys.SysCfg().getConfig();
 
-    std::string url = trim_trailing_slash(cfg.getBaseUrl()) + "/usage";
-    auto resp = HAL::Http().get(url, cfg.getBearer(), FETCH_TIMEOUT_SEC);
+    std::string url = trim_trailing_slash(cfg.claudeBase) + "/usage";
+    auto resp = HAL::Http().get(url, cfg.claudeBearer, FETCH_TIMEOUT_SEC);
 
     if (resp.http_code == 0) {
         out.last_err = resp.error.empty() ? std::string("net err") : resp.error;
