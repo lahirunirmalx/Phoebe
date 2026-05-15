@@ -63,6 +63,8 @@ private:
     std::uint8_t* _clock_canvas_buf = nullptr;
     lv_obj_t* _clock_time_label = nullptr;
     lv_obj_t* _clock_date_label = nullptr;
+    lv_obj_t* _clock_5h_bar = nullptr;
+    lv_obj_t* _clock_5h_pct_label = nullptr;
 
     // Meter view widgets
     lv_obj_t* _meter_container = nullptr;

@@ -166,6 +166,22 @@ void AppClaudeMeter::_build_clock_view()
     lv_obj_set_style_bg_opa(_clock_container, LV_OPA_COVER, 0);
     lv_obj_clear_flag(_clock_container, LV_OBJ_FLAG_CLICKABLE);
 
+    // Thin 5H Claude-usage bar pinned to the very top of the screen, with
+    // a small pct label on the right. Doesn't touch the analog clock face.
+    _clock_5h_pct_label = lv_label_create(_clock_container);
+    lv_obj_set_style_text_color(_clock_5h_pct_label, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(_clock_5h_pct_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_clock_5h_pct_label, "5H --");
+    lv_obj_align(_clock_5h_pct_label, LV_ALIGN_TOP_RIGHT, -4, 0);
+
+    _clock_5h_bar = lv_bar_create(_clock_container);
+    lv_obj_set_size(_clock_5h_bar, SCREEN_W - 64, 4);
+    lv_obj_align(_clock_5h_bar, LV_ALIGN_TOP_LEFT, 4, 8);
+    lv_bar_set_range(_clock_5h_bar, 0, 100);
+    lv_obj_set_style_bg_color(_clock_5h_bar, COLOR_BAR_BG, LV_PART_MAIN);
+    lv_obj_set_style_radius(_clock_5h_bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(_clock_5h_bar, 1, LV_PART_INDICATOR);
+
     // Analog clock face fills most of the screen; digital time sits below it.
     // The canvas no longer overlaps the date text because the digital text
     // is anchored to the bottom edge.
@@ -173,7 +189,7 @@ void AppClaudeMeter::_build_clock_view()
     _clock_canvas = lv_canvas_create(_clock_container);
     lv_canvas_set_buffer(_clock_canvas, _clock_canvas_buf, CLOCK_CANVAS_W, CLOCK_CANVAS_H,
                          LV_COLOR_FORMAT_RGB565);
-    lv_obj_align(_clock_canvas, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_align(_clock_canvas, LV_ALIGN_TOP_MID, 0, 18);
 
     _clock_time_label = lv_label_create(_clock_container);
     lv_obj_set_style_text_color(_clock_time_label, COLOR_FG, 0);
@@ -276,6 +292,27 @@ void AppClaudeMeter::_toggle_view()
 void AppClaudeMeter::_update_clock()
 {
     if (!_clock_canvas) return;
+
+    // Refresh the small 5H usage bar from the latest snapshot. Live value
+    // when fetch_state == OK, mock value otherwise.
+    if (_clock_5h_bar) {
+        Snapshot snap;
+        {
+            std::lock_guard<std::mutex> lock(_snapshot_mutex);
+            snap = _snapshot;
+        }
+        float p5 = (snap.state == Fetch_OK && snap.pct_five_hour >= 0.0f)
+                       ? snap.pct_five_hour
+                       : _mock_pct_five_hour;
+        lv_color_t c = bar_color_for(p5);
+        lv_bar_set_value(_clock_5h_bar, (int)(p5 + 0.5f), LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(_clock_5h_bar, c, LV_PART_INDICATOR);
+
+        char buf[12];
+        std::snprintf(buf, sizeof(buf), "5H %d%%", (int)(p5 + 0.5f));
+        lv_label_set_text(_clock_5h_pct_label, buf);
+        lv_obj_set_style_text_color(_clock_5h_pct_label, c, 0);
+    }
 
     time_t now;
     struct tm* tm_info;
