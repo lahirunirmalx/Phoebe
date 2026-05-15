@@ -35,7 +35,19 @@ void HalDesktop::init()
     // spawning the python daemon (which would pop a PyQt5 simulator window).
     _components.ble = std::make_unique<hal_components::BleBase>();
 
-    // WiFi manager (desktop simulation) -- persists SSID/password to a JSON file.
+    // Desktop has no real IMU / buzzer / haptic / battery hardware --
+    // pre-inject the base stubs so accessors don't lazily allocate and log warnings.
+    _components.imu = std::make_unique<hal_components::ImuBase>();
+    _components.buzzer = std::make_unique<hal_components::BuzzerBase>();
+    _components.haptic_engine = std::make_unique<hal_components::HapticEngineBase>();
+    _components.battery_monitor = std::make_unique<hal_components::BatteryMonitorBase>();
+
+    // Load the saved configuration FIRST -- WiFi manager pulls credentials
+    // from SystemConfig, so this needs to happen before wifi->load().
+    HAL::SysCfg().loadConfig();
+    HAL::SysCfg().logConfig();
+
+    // WiFi manager (desktop simulation) -- credentials come from SystemConfig.
     _components.wifi = std::make_unique<WifiManagerStd>();
     _components.wifi->load();
     if (_components.wifi->hasCredentials()) {
@@ -45,17 +57,6 @@ void HalDesktop::init()
 
     // HTTP client (libcurl on desktop).
     _components.http_client = std::make_unique<HttpClientCurl>();
-
-    // Desktop has no real IMU / buzzer / haptic / battery hardware --
-    // pre-inject the base stubs so accessors don't lazily allocate and log warnings.
-    _components.imu = std::make_unique<hal_components::ImuBase>();
-    _components.buzzer = std::make_unique<hal_components::BuzzerBase>();
-    _components.haptic_engine = std::make_unique<hal_components::HapticEngineBase>();
-    _components.battery_monitor = std::make_unique<hal_components::BatteryMonitorBase>();
-
-    // Load the saved configuration
-    HAL::SysCfg().loadConfig();
-    HAL::SysCfg().logConfig();
 }
 
 /* -------------------------------------------------------------------------- */

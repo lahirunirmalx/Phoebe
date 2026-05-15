@@ -5,5 +5,7 @@
   "widgetA": "time",
   "widgetB": "date",
   "claudeBase": "http://127.0.0.1:7878",
-  "claudeBearer": "YOUR_BEARER_TOKEN"
+  "claudeBearer": "YOUR_BEARER_TOKEN",
+  "wifiSsid": "YOUR_SSID",
+  "wifiPassword": "YOUR_PASSWORD"
 }

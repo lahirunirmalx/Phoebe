@@ -2,7 +2,6 @@
 .cache
 build
 
-# Runtime config -- may contain secrets (bearer tokens, wifi passwords)
+# Runtime config -- contains secrets (bearer token, wifi password)
 system_config.json
 system_config.json.bk
-wifi_config.json

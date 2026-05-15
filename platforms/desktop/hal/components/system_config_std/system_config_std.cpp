@@ -120,6 +120,8 @@ std::string SystemConfigStd::create_config_json()
     doc["widgetB"] = _config.widgetB;
     doc["claudeBase"] = _config.claudeBase;
     doc["claudeBearer"] = _config.claudeBearer;
+    doc["wifiSsid"] = _config.wifiSsid;
+    doc["wifiPassword"] = _config.wifiPassword;
 
     // Serialize json
     std::string json_content;
@@ -148,6 +150,8 @@ bool SystemConfigStd::parse_json_and_copy_config(char* jsonContent)
     _config.widgetB = doc["widgetB"].as<std::string>();
     _config.claudeBase = doc["claudeBase"].as<std::string>();
     _config.claudeBearer = doc["claudeBearer"].as<std::string>();
+    _config.wifiSsid = doc["wifiSsid"].as<std::string>();
+    _config.wifiPassword = doc["wifiPassword"].as<std::string>();
 
     // Env vars take precedence over what's on disk.
     apply_env_overrides();
@@ -161,6 +165,11 @@ void SystemConfigStd::apply_env_overrides()
     const char* env_bearer = std::getenv("PHOEBE_CLAUDE_BEARER");
     if (env_base && env_base[0] != '\0') _config.claudeBase = env_base;
     if (env_bearer && env_bearer[0] != '\0') _config.claudeBearer = env_bearer;
+
+    const char* env_ssid = std::getenv("PHOEBE_WIFI_SSID");
+    const char* env_pw = std::getenv("PHOEBE_WIFI_PASSWORD");
+    if (env_ssid && env_ssid[0] != '\0') _config.wifiSsid = env_ssid;
+    if (env_pw && env_pw[0] != '\0') _config.wifiPassword = env_pw;
 }
 
 void SystemConfigStd::backup_config_file()
@@ -206,4 +215,6 @@ void SystemConfigStd::logConfig()
     fmt::println("widgetB: {}", _config.widgetB);
     fmt::println("claudeBase: {}", _config.claudeBase.empty() ? "<unset>" : _config.claudeBase);
     fmt::println("claudeBearer: {}", _config.claudeBearer.empty() ? "<unset>" : "***");
+    fmt::println("wifiSsid: {}", _config.wifiSsid.empty() ? "<unset>" : _config.wifiSsid);
+    fmt::println("wifiPassword: {}", _config.wifiPassword.empty() ? "<unset>" : "***");
 }

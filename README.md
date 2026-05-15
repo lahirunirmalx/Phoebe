@@ -56,11 +56,10 @@ the Claude meter view.
 
 ## Configuration
 
-Runtime configs live next to the binary's working directory and are
-**gitignored** because they contain secrets. Committed templates show
-the schema.
-
-### App preferences + Claude endpoint (`system_config.json`)
+A single runtime config — `system_config.json` — sits next to the
+binary's working directory. It's **gitignored** because it holds the
+Claude bearer token and the WiFi password; the committed
+`system_config.example.json` shows the schema.
 
 ```bash
 cp system_config.example.json system_config.json
@@ -77,13 +76,18 @@ Fields:
 | `widgetA`/`B`    | watch-face widget slots                              |
 | `claudeBase`     | usage server base URL, e.g. `http://127.0.0.1:7878`  |
 | `claudeBearer`   | API token sent as `Authorization: Bearer <token>`    |
+| `wifiSsid`       | WiFi SSID (desktop sim records it, ESP32 ignores it) |
+| `wifiPassword`   | WiFi password (same)                                 |
 
-Or seed the Claude fields via env vars on first run; the desktop impl
-will write them into `system_config.json` for you:
+Any of the four secret fields can also be seeded via env vars on first
+run; the desktop impl writes them into `system_config.json` for you.
+Env vars take precedence over what's already on disk:
 
 ```bash
 PHOEBE_CLAUDE_BASE=http://127.0.0.1:7878 \
 PHOEBE_CLAUDE_BEARER=sk-... \
+PHOEBE_WIFI_SSID=mywifi \
+PHOEBE_WIFI_PASSWORD=secret \
   ./build/desktop/app_desktop_build
 ```
 
@@ -97,24 +101,15 @@ The expected endpoint shape is provided by
 (run it locally and point `claudeBase` at e.g. `http://127.0.0.1:7878`).
 Any service returning the same JSON shape will work just as well.
 
-### WiFi credentials (`wifi_config.json`)
+### Platform notes
 
-```bash
-cp wifi_config.example.json wifi_config.json
-$EDITOR wifi_config.json
-```
-
-Or seed via env vars on first run:
-
-```bash
-PHOEBE_WIFI_SSID=mywifi PHOEBE_WIFI_PASSWORD=secret \
-  ./build/desktop/app_desktop_build
-```
-
-On desktop the WiFi manager is a simulation — the OS already has WiFi,
-so `connect()` just records the credentials. On ESP32 it actually drives
-the radio (Arduino `WiFi.begin()`) with credentials persisted to NVS
-namespace `wifi`.
+- **Desktop.** WiFi is a simulation — the host OS already has WiFi, so
+  `connect()` just records the credentials. All fields, including
+  `wifiSsid` / `wifiPassword`, persist in `system_config.json`.
+- **ESP32.** WiFi credentials live in NVS namespace `wifi`
+  (`WifiManagerEsp32` is the source of truth there). The `wifiSsid` /
+  `wifiPassword` fields in `system_config.json` are unused on ESP32.
+  `claudeBase` / `claudeBearer` still come from `system_config`.
 
 ---
 

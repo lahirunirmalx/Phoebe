@@ -32,11 +32,22 @@ public:
         // bearer: opaque API token sent as "Authorization: Bearer <token>"
         std::string claudeBase;
         std::string claudeBearer;
+
+        // WiFi credentials. Desktop persists these inside the same JSON;
+        // ESP32 keeps them in NVS namespace "wifi" (NVS-backed
+        // WifiManagerEsp32 is the source of truth there).
+        std::string wifiSsid;
+        std::string wifiPassword;
     };
 
     bool isClaudeReady() const
     {
         return !_config.claudeBase.empty() && !_config.claudeBearer.empty();
+    }
+
+    bool isWifiReady() const
+    {
+        return !_config.wifiSsid.empty();
     }
 
     ~SystemConfigBase() = default;
