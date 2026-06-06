@@ -160,3 +160,12 @@ hal_components::HttpClientBase& HAL::HalBase::Http()
     }
     return *_components.http_client.get();
 }
+
+hal_components::BacklightBase& HAL::HalBase::Backlight()
+{
+    if (!_components.backlight) {
+        mclog::tagWarn(_tag, "getting null backlight component");
+        _components.backlight = std::make_unique<hal_components::BacklightBase>();
+    }
+    return *_components.backlight.get();
+}

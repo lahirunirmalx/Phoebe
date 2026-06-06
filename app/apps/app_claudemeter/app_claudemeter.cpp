@@ -18,12 +18,28 @@ using namespace mooncake;
 
 namespace {
 
-constexpr int SCREEN_W = 144;
-constexpr int SCREEN_H = 168;
+// Screen geometry. Defaults to the production phoebe panel (144x168) but can be
+// overridden per-platform via build flags -- e.g. the Freenove Mini TV passes
+// -DPHOEBE_SCREEN_W=240 -DPHOEBE_SCREEN_H=240 so the faces fill its square panel.
+#ifndef PHOEBE_SCREEN_W
+#define PHOEBE_SCREEN_W 144
+#endif
+#ifndef PHOEBE_SCREEN_H
+#define PHOEBE_SCREEN_H 168
+#endif
+constexpr int SCREEN_W = PHOEBE_SCREEN_W;
+constexpr int SCREEN_H = PHOEBE_SCREEN_H;
 
-// Clock canvas geometry (square)
-constexpr int CLOCK_CANVAS_W = 110;
-constexpr int CLOCK_CANVAS_H = 110;
+// Turn the display (backlight) off after this long with no touch, unless the
+// meter view is pinned. Only applies where the backlight is controllable.
+constexpr std::uint32_t DISPLAY_SLEEP_MS = 5 * 60 * 1000; // 5 minutes
+// Two taps within this window count as a double-tap (pin the meter).
+constexpr std::uint32_t DOUBLE_TAP_MS = 400;
+
+// Clock canvas geometry (square) -- sized to fill the 240x240 panel inside the
+// usage rings on the analog face.
+constexpr int CLOCK_CANVAS_W = 150;
+constexpr int CLOCK_CANVAS_H = 150;
 
 // Poll cadence for /usage. M5Cardputer-UserDemo uses 5 minutes; mirror it.
 constexpr int FETCH_PERIOD_SEC = 300;
@@ -41,11 +57,41 @@ const lv_color_t COLOR_WARN = LV_COLOR_MAKE(0xFF, 0xB0, 0x60);
 const lv_color_t COLOR_DANGER = LV_COLOR_MAKE(0xFF, 0x64, 0x64);
 const lv_color_t COLOR_ACCENT = LV_COLOR_MAKE(0x99, 0xFF, 0x00);
 
-lv_color_t bar_color_for(float pct)
+// Per-metric palettes so 5H and 7D are visually distinct on the rings + bars.
+const lv_color_t COLOR_5H = LV_COLOR_MAKE(0x33, 0xC8, 0xFF); // cyan
+const lv_color_t COLOR_7D = LV_COLOR_MAKE(0xFF, 0xC0, 0x40); // amber
+
+// A metric keeps its own hue until usage hits the danger threshold, then turns
+// red -- so 5H/7D stay visually distinct but high usage still reads as alarming.
+lv_color_t metric_color(float pct, lv_color_t base)
 {
     if (pct >= DANGER_THRESHOLD) return COLOR_DANGER;
-    if (pct >= WARN_THRESHOLD) return COLOR_WARN;
-    return COLOR_OK;
+    return base;
+}
+
+// Create a round gauge (270-degree arc, gap at the bottom, no knob, not
+// interactive) used for the Claude usage rings on the meter + analog faces.
+lv_obj_t* make_ring(lv_obj_t* parent, int size, int width)
+{
+    lv_obj_t* a = lv_arc_create(parent);
+    lv_obj_set_size(a, size, size);
+    lv_arc_set_rotation(a, 135);
+    lv_arc_set_bg_angles(a, 0, 270);
+    lv_arc_set_range(a, 0, 100);
+    lv_arc_set_value(a, 0);
+    lv_obj_remove_style(a, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(a, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_width(a, width, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(a, width, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(a, COLOR_BAR_BG, LV_PART_MAIN);
+    return a;
+}
+
+void set_ring(lv_obj_t* a, float pct, lv_color_t color)
+{
+    if (!a) return;
+    lv_arc_set_value(a, (int)(pct + 0.5f));
+    lv_obj_set_style_arc_color(a, color, LV_PART_INDICATOR);
 }
 
 /* ---------------- 7-segment rendering ---------------- */
@@ -211,9 +257,18 @@ void AppClaudeMeter::onOpen()
     mclog::tagInfo(getAppInfo().name, "watch face: {}", wf_name);
 
     _build_ui();
-    _show_view(_view);
-    _update_clock();
-    _update_meter();
+    _update_meter();             // prime the meter widgets before they're shown
+
+    // Show the boot splash; onRunning() reveals the clock once time syncs.
+    for (auto& s : _screens) lv_obj_add_flag(s.container, LV_OBJ_FLAG_HIDDEN);
+    _booting = true;
+
+    // Boot lit; start the idle/sleep timer.
+    _display_on = true;
+    _pinned = false;
+    _last_interaction_ms = HAL::SysCtrl().millis();
+    _last_click_ms = 0;
+    HAL::Backlight().on();
 
     _start_fetch_thread();
 }
@@ -226,23 +281,40 @@ void AppClaudeMeter::onRunning()
     if (now_ms - _last_tick_ms < 500) return;
     _last_tick_ms = now_ms;
 
-    if (_view == VIEW_CLOCK) {
-        _update_clock();
-    } else {
-        // If we have no live data yet, drift the mock values so the bars
-        // remain visibly alive during development.
-        Snapshot snap;
-        {
-            std::lock_guard<std::mutex> lock(_snapshot_mutex);
-            snap = _snapshot;
+    // Stay on the boot splash until the clock is synced via SNTP.
+    if (_booting) {
+        if (_time_is_synced()) {
+            _booting = false;
+            _last_interaction_ms = now_ms;
+            _show_screen(0); // reveal the clock
+            mclog::tagInfo(getAppInfo().name, "time synced, showing clock");
         }
-        if (snap.state != Fetch_OK) {
+        return;
+    }
+
+    // Display sleep: turn the backlight off after the idle window, unless the
+    // meter is pinned. Only on platforms with a controllable backlight.
+    if (_display_on && !_pinned && HAL::Backlight().controllable() &&
+        (now_ms - _last_interaction_ms > DISPLAY_SLEEP_MS)) {
+        _display_on = false;
+        HAL::Backlight().off();
+    }
+
+    // If we have no live data yet, drift the mock values so the rings/bars
+    // remain visibly alive during development (affects whichever screen is up).
+    {
+        std::lock_guard<std::mutex> lock(_snapshot_mutex);
+        if (_snapshot.state != Fetch_OK) {
             _mock_pct_five_hour += 0.7f;
             if (_mock_pct_five_hour > 100.0f) _mock_pct_five_hour = 0.0f;
             _mock_pct_seven_day += 0.3f;
             if (_mock_pct_seven_day > 100.0f) _mock_pct_seven_day = 0.0f;
         }
-        _update_meter();
+    }
+
+    // Refresh the currently shown screen.
+    if (_screen_idx < (int)_screens.size() && _screens[_screen_idx].update) {
+        _screens[_screen_idx].update();
     }
 }
 
@@ -254,6 +326,9 @@ void AppClaudeMeter::onClose()
 
     if (_clock_anim_arc) {
         lv_anim_delete(_clock_anim_arc, NULL);
+    }
+    if (_boot_arc) {
+        lv_anim_delete(_boot_arc, NULL);
     }
     if (_root) {
         lv_obj_delete(_root);
@@ -276,12 +351,97 @@ void AppClaudeMeter::_build_ui()
     lv_obj_add_flag(_root, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(_root, &AppClaudeMeter::_on_root_clicked, LV_EVENT_CLICKED, this);
 
+    // Boot splash (shown until the clock syncs via SNTP).
+    _build_boot_screen();
+
+    // Build each screen's container, then register it. Tap cycles in this order.
     _build_clock_view();
     _build_meter_view();
+
+    _register_screen("clock", _clock_container, [this] { _update_clock(); });
+    _register_screen("meter", _meter_container, [this] { _update_meter(); });
+
+    // To add another app (e.g. weather): build its full-screen container in a
+    // _build_weather_view() helper, then register it here, e.g.:
+    //   _build_weather_view();
+    //   _register_screen("weather", _weather_container, [this] { _update_weather(); });
+}
+
+void AppClaudeMeter::_build_boot_screen()
+{
+    _boot_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_boot_container);
+    lv_obj_set_size(_boot_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_boot_container, 0, 0);
+    lv_obj_set_style_bg_color(_boot_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_boot_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_boot_container, LV_OBJ_FLAG_CLICKABLE);
+
+    // Spinning accent arc.
+    _boot_arc = lv_arc_create(_boot_container);
+    lv_obj_set_size(_boot_arc, 96, 96);
+    lv_obj_align(_boot_arc, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_remove_style(_boot_arc, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(_boot_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_arc_set_bg_angles(_boot_arc, 0, 360);
+    lv_arc_set_angles(_boot_arc, 0, 60);
+    lv_obj_set_style_arc_color(_boot_arc, COLOR_BAR_BG, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(_boot_arc, COLOR_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(_boot_arc, 7, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(_boot_arc, 7, LV_PART_INDICATOR);
+
+    lv_anim_init(&_boot_anim);
+    lv_anim_set_var(&_boot_anim, _boot_arc);
+    lv_anim_set_exec_cb(&_boot_anim, [](void* obj, int32_t v) {
+        lv_arc_set_angles(static_cast<lv_obj_t*>(obj), v, v + 60);
+    });
+    lv_anim_set_values(&_boot_anim, 0, 360);
+    lv_anim_set_duration(&_boot_anim, 1200);
+    lv_anim_set_repeat_count(&_boot_anim, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&_boot_anim);
+
+    lv_obj_t* label = lv_label_create(_boot_container);
+    lv_obj_set_style_text_color(label, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(label, "syncing time...");
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, 60);
+}
+
+bool AppClaudeMeter::_time_is_synced() const
+{
+    time_t now = time(nullptr);
+    return now > 1577836800; // > 2020-01-01 => SNTP has set the clock
+}
+
+void AppClaudeMeter::_register_screen(const char* name, lv_obj_t* container,
+                                      std::function<void()> update)
+{
+    _screens.push_back({name, container, std::move(update)});
+}
+
+void AppClaudeMeter::_show_screen(int idx)
+{
+    if (_screens.empty()) return;
+    if (idx < 0) idx = 0;
+    if (idx >= (int)_screens.size()) idx = (int)_screens.size() - 1;
+    if (_boot_container) lv_obj_add_flag(_boot_container, LV_OBJ_FLAG_HIDDEN);
+    _screen_idx = idx;
+    for (int i = 0; i < (int)_screens.size(); ++i) {
+        if (i == idx) {
+            lv_obj_clear_flag(_screens[i].container, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(_screens[i].container, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (_screens[idx].update) _screens[idx].update();
+    mclog::tagInfo(getAppInfo().name, "screen: {}", _screens[idx].name);
 }
 
 AppClaudeMeter::WatchFace AppClaudeMeter::_resolve_watch_face() const
 {
+#ifdef PHOEBE_FORCE_WATCHFACE_ANALOG
+    return WF_Analog; // build pins the face to analog (see main/CMakeLists.txt)
+#endif
     const auto& wf = HAL::SysCfg().getConfig().watchFace;
     if (wf == "digital") return WF_Digital;
     if (wf == "animated") return WF_Animated;
@@ -300,6 +460,7 @@ void AppClaudeMeter::_build_clock_view()
     lv_obj_set_style_bg_opa(_clock_container, LV_OPA_COVER, 0);
     lv_obj_clear_flag(_clock_container, LV_OBJ_FLAG_CLICKABLE);
 
+    // Thin 5H usage bar across the top of every clock face.
     _build_clock_5h_bar();
 
     switch (_watch_face) {
@@ -333,24 +494,51 @@ void AppClaudeMeter::_build_clock_5h_bar()
 
 void AppClaudeMeter::_build_clock_analog()
 {
-    // Analog clock canvas at the top; digital time and date at the bottom.
-    _clock_canvas_buf = new std::uint8_t[CLOCK_CANVAS_W * CLOCK_CANVAS_H * 2];
-    _clock_canvas = lv_canvas_create(_clock_container);
-    lv_canvas_set_buffer(_clock_canvas, _clock_canvas_buf, CLOCK_CANVAS_W, CLOCK_CANVAS_H,
-                         LV_COLOR_FORMAT_RGB565);
-    lv_obj_align(_clock_canvas, LV_ALIGN_TOP_MID, 0, 18);
+    // Full-screen analog clock -- no Claude usage rings. Hands are lv_line
+    // objects (cheap; no large canvas buffer), so they can fill the panel.
+    // Nudged down a little so the dial clears the top 5H bar.
+    const int OFF = 8;
+    const int R = (SCREEN_W < SCREEN_H ? SCREEN_W : SCREEN_H) / 2 - 10;
 
-    _clock_time_label = lv_label_create(_clock_container);
-    lv_obj_set_style_text_color(_clock_time_label, COLOR_FG, 0);
-    lv_obj_set_style_text_font(_clock_time_label, &lv_font_montserrat_24, 0);
-    lv_label_set_text(_clock_time_label, "00:00");
-    lv_obj_align(_clock_time_label, LV_ALIGN_BOTTOM_MID, 0, -22);
+    // Outer dial ring.
+    lv_obj_t* dial = lv_arc_create(_clock_container);
+    lv_obj_set_size(dial, R * 2, R * 2);
+    lv_obj_align(dial, LV_ALIGN_CENTER, 0, OFF);
+    lv_obj_remove_style(dial, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(dial, LV_OBJ_FLAG_CLICKABLE);
+    lv_arc_set_bg_angles(dial, 0, 360);
+    lv_arc_set_angles(dial, 0, 0);
+    lv_obj_set_style_arc_color(dial, COLOR_BAR_BG, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(dial, 3, LV_PART_MAIN);
 
+    auto mk_hand = [&](lv_color_t color, int width) {
+        lv_obj_t* l = lv_line_create(_clock_container);
+        lv_obj_set_pos(l, 0, 0);
+        lv_obj_set_style_line_color(l, color, 0);
+        lv_obj_set_style_line_width(l, width, 0);
+        lv_obj_set_style_line_rounded(l, true, 0);
+        return l;
+    };
+    _hour_line = mk_hand(COLOR_FG, 8);
+    _min_line = mk_hand(COLOR_FG, 5);
+    _sec_line = mk_hand(COLOR_ACCENT, 3);
+
+    // Center hub.
+    lv_obj_t* hub = lv_obj_create(_clock_container);
+    lv_obj_remove_style_all(hub);
+    lv_obj_set_size(hub, 12, 12);
+    lv_obj_set_style_radius(hub, 6, 0);
+    lv_obj_set_style_bg_color(hub, COLOR_ACCENT, 0);
+    lv_obj_set_style_bg_opa(hub, LV_OPA_COVER, 0);
+    lv_obj_align(hub, LV_ALIGN_CENTER, 0, OFF);
+
+    // Date along the bottom edge.
+    _clock_time_label = nullptr; // the hands are the time
     _clock_date_label = lv_label_create(_clock_container);
     lv_obj_set_style_text_color(_clock_date_label, COLOR_LABEL_DIM, 0);
     lv_obj_set_style_text_font(_clock_date_label, &lv_font_montserrat_14, 0);
     lv_label_set_text(_clock_date_label, "");
-    lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -6);
 }
 
 void AppClaudeMeter::_build_clock_digital()
@@ -358,21 +546,21 @@ void AppClaudeMeter::_build_clock_digital()
     // Big HH:MM centered; smaller :SS below; date at the bottom.
     _clock_time_label = lv_label_create(_clock_container);
     lv_obj_set_style_text_color(_clock_time_label, COLOR_FG, 0);
-    lv_obj_set_style_text_font(_clock_time_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(_clock_time_label, &lv_font_montserrat_48, 0);
     lv_label_set_text(_clock_time_label, "00:00");
-    lv_obj_align(_clock_time_label, LV_ALIGN_CENTER, 0, -8);
+    lv_obj_align(_clock_time_label, LV_ALIGN_CENTER, 0, -20);
 
     _clock_sec_label = lv_label_create(_clock_container);
     lv_obj_set_style_text_color(_clock_sec_label, COLOR_ACCENT, 0);
-    lv_obj_set_style_text_font(_clock_sec_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(_clock_sec_label, &lv_font_montserrat_24, 0);
     lv_label_set_text(_clock_sec_label, ":00");
-    lv_obj_align_to(_clock_sec_label, _clock_time_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
+    lv_obj_align_to(_clock_sec_label, _clock_time_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
 
     _clock_date_label = lv_label_create(_clock_container);
     lv_obj_set_style_text_color(_clock_date_label, COLOR_LABEL_DIM, 0);
     lv_obj_set_style_text_font(_clock_date_label, &lv_font_montserrat_14, 0);
     lv_label_set_text(_clock_date_label, "");
-    lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -10);
 }
 
 void AppClaudeMeter::_build_clock_animated()
@@ -380,7 +568,7 @@ void AppClaudeMeter::_build_clock_animated()
     // Rotating accent arc behind the time. Driven by an lv_anim_t that
     // sweeps the arc start angle continuously, independent of wall time.
     _clock_anim_arc = lv_arc_create(_clock_container);
-    lv_obj_set_size(_clock_anim_arc, 110, 110);
+    lv_obj_set_size(_clock_anim_arc, 196, 196);
     lv_obj_align(_clock_anim_arc, LV_ALIGN_CENTER, 0, -4);
     lv_obj_remove_style(_clock_anim_arc, NULL, LV_PART_KNOB);
     lv_obj_clear_flag(_clock_anim_arc, LV_OBJ_FLAG_CLICKABLE);
@@ -388,8 +576,8 @@ void AppClaudeMeter::_build_clock_animated()
     lv_arc_set_angles(_clock_anim_arc, 0, 60);
     lv_obj_set_style_arc_color(_clock_anim_arc, COLOR_BAR_BG, LV_PART_MAIN);
     lv_obj_set_style_arc_color(_clock_anim_arc, COLOR_ACCENT, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(_clock_anim_arc, 6, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(_clock_anim_arc, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(_clock_anim_arc, 10, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(_clock_anim_arc, 10, LV_PART_INDICATOR);
 
     lv_anim_init(&_clock_anim);
     lv_anim_set_var(&_clock_anim, _clock_anim_arc);
@@ -405,7 +593,7 @@ void AppClaudeMeter::_build_clock_animated()
 
     _clock_time_label = lv_label_create(_clock_container);
     lv_obj_set_style_text_color(_clock_time_label, COLOR_FG, 0);
-    lv_obj_set_style_text_font(_clock_time_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(_clock_time_label, &lv_font_montserrat_48, 0);
     lv_label_set_text(_clock_time_label, "00:00");
     lv_obj_align(_clock_time_label, LV_ALIGN_CENTER, 0, -4);
 
@@ -413,7 +601,7 @@ void AppClaudeMeter::_build_clock_animated()
     lv_obj_set_style_text_color(_clock_date_label, COLOR_LABEL_DIM, 0);
     lv_obj_set_style_text_font(_clock_date_label, &lv_font_montserrat_14, 0);
     lv_label_set_text(_clock_date_label, "");
-    lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -10);
 }
 
 void AppClaudeMeter::_build_clock_seg7()
@@ -429,13 +617,13 @@ void AppClaudeMeter::_build_clock_seg7()
     }
 
     // Canvas hosts the 4 large 7-segment digits + a blinking colon.
-    constexpr int CW = 124;
-    constexpr int CH = 50;
+    constexpr int CW = 212;
+    constexpr int CH = 96;
     _clock_face_canvas_buf = new std::uint8_t[CW * CH * 2];
     _clock_face_canvas = lv_canvas_create(_clock_container);
     lv_canvas_set_buffer(_clock_face_canvas, _clock_face_canvas_buf, CW, CH,
                          LV_COLOR_FORMAT_RGB565);
-    lv_obj_align(_clock_face_canvas, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align(_clock_face_canvas, LV_ALIGN_CENTER, 0, -6);
 
     _clock_date_label = lv_label_create(_clock_container);
     lv_obj_set_style_text_color(_clock_date_label, SEG7_DATE, 0);
@@ -457,13 +645,13 @@ void AppClaudeMeter::_build_clock_vfd()
     }
 
     // Canvas hosts a 5x7 dot-matrix rendition of HH:MM in phosphor green.
-    constexpr int CW = 128;
-    constexpr int CH = 32;
+    constexpr int CW = 224;
+    constexpr int CH = 56;
     _clock_face_canvas_buf = new std::uint8_t[CW * CH * 2];
     _clock_face_canvas = lv_canvas_create(_clock_container);
     lv_canvas_set_buffer(_clock_face_canvas, _clock_face_canvas_buf, CW, CH,
                          LV_COLOR_FORMAT_RGB565);
-    lv_obj_align(_clock_face_canvas, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align(_clock_face_canvas, LV_ALIGN_CENTER, 0, -6);
 
     _clock_date_label = lv_label_create(_clock_container);
     lv_obj_set_style_text_color(_clock_date_label, VFD_DIM, 0);
@@ -486,43 +674,52 @@ void AppClaudeMeter::_build_meter_view()
     lv_obj_set_style_text_color(_meter_title_label, COLOR_ACCENT, 0);
     lv_obj_set_style_text_font(_meter_title_label, &lv_font_montserrat_14, 0);
     lv_label_set_text(_meter_title_label, "CLAUDE METER");
-    lv_obj_align(_meter_title_label, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_align(_meter_title_label, LV_ALIGN_TOP_MID, 0, 12);
 
-    // 5-hour row
+    // Concentric round gauges: outer = 7-day, inner = 5-hour. Sized to stay
+    // well inside the panel (the case bezel crops ~15px at the edges) and to
+    // clear the secondary bars at the bottom.
+    const int outer = 150;
+    _meter_d7_arc = make_ring(_meter_container, outer, 11);
+    lv_obj_align(_meter_d7_arc, LV_ALIGN_CENTER, 0, -14);
+    _meter_h5_arc = make_ring(_meter_container, outer - 42, 11);
+    lv_obj_align(_meter_h5_arc, LV_ALIGN_CENTER, 0, -14);
+
+    // Percentages in the centre of the rings.
+    _meter_h5_pct_label = lv_label_create(_meter_container);
+    lv_obj_set_style_text_font(_meter_h5_pct_label, &lv_font_montserrat_24, 0);
+    lv_label_set_text(_meter_h5_pct_label, "5H --");
+    lv_obj_align(_meter_h5_pct_label, LV_ALIGN_CENTER, 0, -24);
+
+    _meter_d7_pct_label = lv_label_create(_meter_container);
+    lv_obj_set_style_text_font(_meter_d7_pct_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_meter_d7_pct_label, "7D --");
+    lv_obj_align(_meter_d7_pct_label, LV_ALIGN_CENTER, 0, -2);
+
+    // Thin secondary bars at the bottom (5H then 7D).
     _meter_h5_label = lv_label_create(_meter_container);
     lv_obj_set_style_text_color(_meter_h5_label, COLOR_LABEL_DIM, 0);
     lv_obj_set_style_text_font(_meter_h5_label, &lv_font_montserrat_14, 0);
     lv_label_set_text(_meter_h5_label, "5H");
-    lv_obj_align(_meter_h5_label, LV_ALIGN_TOP_LEFT, 6, 36);
-
-    _meter_h5_pct_label = lv_label_create(_meter_container);
-    lv_obj_set_style_text_font(_meter_h5_pct_label, &lv_font_montserrat_24, 0);
-    lv_label_set_text(_meter_h5_pct_label, "--");
-    lv_obj_align(_meter_h5_pct_label, LV_ALIGN_TOP_RIGHT, -6, 28);
+    lv_obj_align(_meter_h5_label, LV_ALIGN_BOTTOM_LEFT, 6, -44);
 
     _meter_h5_bar = lv_bar_create(_meter_container);
-    lv_obj_set_size(_meter_h5_bar, SCREEN_W - 16, 10);
-    lv_obj_align(_meter_h5_bar, LV_ALIGN_TOP_LEFT, 8, 60);
+    lv_obj_set_size(_meter_h5_bar, SCREEN_W - 56, 8);
+    lv_obj_align(_meter_h5_bar, LV_ALIGN_BOTTOM_LEFT, 40, -46);
     lv_bar_set_range(_meter_h5_bar, 0, 100);
     lv_obj_set_style_bg_color(_meter_h5_bar, COLOR_BAR_BG, LV_PART_MAIN);
     lv_obj_set_style_radius(_meter_h5_bar, 2, LV_PART_MAIN);
     lv_obj_set_style_radius(_meter_h5_bar, 2, LV_PART_INDICATOR);
 
-    // 7-day row
     _meter_d7_label = lv_label_create(_meter_container);
     lv_obj_set_style_text_color(_meter_d7_label, COLOR_LABEL_DIM, 0);
     lv_obj_set_style_text_font(_meter_d7_label, &lv_font_montserrat_14, 0);
     lv_label_set_text(_meter_d7_label, "7D");
-    lv_obj_align(_meter_d7_label, LV_ALIGN_TOP_LEFT, 6, 92);
-
-    _meter_d7_pct_label = lv_label_create(_meter_container);
-    lv_obj_set_style_text_font(_meter_d7_pct_label, &lv_font_montserrat_24, 0);
-    lv_label_set_text(_meter_d7_pct_label, "--");
-    lv_obj_align(_meter_d7_pct_label, LV_ALIGN_TOP_RIGHT, -6, 84);
+    lv_obj_align(_meter_d7_label, LV_ALIGN_BOTTOM_LEFT, 6, -24);
 
     _meter_d7_bar = lv_bar_create(_meter_container);
-    lv_obj_set_size(_meter_d7_bar, SCREEN_W - 16, 10);
-    lv_obj_align(_meter_d7_bar, LV_ALIGN_TOP_LEFT, 8, 116);
+    lv_obj_set_size(_meter_d7_bar, SCREEN_W - 56, 8);
+    lv_obj_align(_meter_d7_bar, LV_ALIGN_BOTTOM_LEFT, 40, -26);
     lv_bar_set_range(_meter_d7_bar, 0, 100);
     lv_obj_set_style_bg_color(_meter_d7_bar, COLOR_BAR_BG, LV_PART_MAIN);
     lv_obj_set_style_radius(_meter_d7_bar, 2, LV_PART_MAIN);
@@ -532,29 +729,7 @@ void AppClaudeMeter::_build_meter_view()
     lv_obj_set_style_text_color(_meter_status_label, COLOR_LABEL_DIM, 0);
     lv_obj_set_style_text_font(_meter_status_label, &lv_font_montserrat_14, 0);
     lv_label_set_text(_meter_status_label, "");
-    lv_obj_align(_meter_status_label, LV_ALIGN_BOTTOM_MID, 0, -4);
-}
-
-void AppClaudeMeter::_show_view(View v)
-{
-    _view = v;
-    if (v == VIEW_CLOCK) {
-        lv_obj_clear_flag(_clock_container, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(_meter_container, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(_clock_container, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(_meter_container, LV_OBJ_FLAG_HIDDEN);
-    }
-}
-
-void AppClaudeMeter::_toggle_view()
-{
-    _show_view(_view == VIEW_CLOCK ? VIEW_METER : VIEW_CLOCK);
-    if (_view == VIEW_CLOCK) {
-        _update_clock();
-    } else {
-        _update_meter();
-    }
+    lv_obj_align(_meter_status_label, LV_ALIGN_BOTTOM_MID, 0, -6);
 }
 
 void AppClaudeMeter::_update_clock()
@@ -591,11 +766,10 @@ void AppClaudeMeter::_update_clock_5h_bar()
                    : _mock_pct_five_hour;
 
     // For themed faces (seg7 / vfd) the bar colour is part of the face's
-    // visual identity and must NOT flip green/orange/red with the threshold.
-    // Other faces use the usual threshold colour scheme.
+    // visual identity and must NOT change. Other faces use the 5H palette.
     bool themed = (_watch_face == WF_Seg7 || _watch_face == WF_VFD);
     lv_color_t c = themed ? lv_obj_get_style_bg_color(_clock_5h_bar, LV_PART_INDICATOR)
-                          : bar_color_for(p5);
+                          : metric_color(p5, COLOR_5H);
 
     lv_bar_set_value(_clock_5h_bar, (int)(p5 + 0.5f), LV_ANIM_OFF);
     if (!themed) {
@@ -612,51 +786,37 @@ void AppClaudeMeter::_update_clock_5h_bar()
 
 void AppClaudeMeter::_update_clock_analog(const struct tm& tm_info)
 {
-    if (!_clock_canvas) return;
-
-    char time_buf[16];
-    std::snprintf(time_buf, sizeof(time_buf), "%02d:%02d", tm_info.tm_hour, tm_info.tm_min);
-    lv_label_set_text(_clock_time_label, time_buf);
+    if (!_sec_line) return;
 
     char date_buf[40];
     std::snprintf(date_buf, sizeof(date_buf), "%04d-%02d-%02d",
                   tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
     lv_label_set_text(_clock_date_label, date_buf);
 
-    lv_canvas_fill_bg(_clock_canvas, COLOR_BG, LV_OPA_COVER);
+    const float cx = SCREEN_W / 2.0f;
+    const float cy = SCREEN_H / 2.0f + 8; // matches OFF in _build_clock_analog
+    const int R = (SCREEN_W < SCREEN_H ? SCREEN_W : SCREEN_H) / 2 - 10;
 
-    const int cx = CLOCK_CANVAS_W / 2;
-    const int cy = CLOCK_CANVAS_H / 2;
     const int hour = tm_info.tm_hour % 12;
     const int minute = tm_info.tm_min;
     const int second = tm_info.tm_sec;
 
-    const float hour_angle = (hour + minute / 60.0f) * 30.0f * (float)M_PI / 180.0f;
-    const float minute_angle = (minute + second / 60.0f) * 6.0f * (float)M_PI / 180.0f;
-    const float second_angle = second * 6.0f * (float)M_PI / 180.0f;
+    const float ha = (hour + minute / 60.0f) * 30.0f * (float)M_PI / 180.0f;
+    const float ma = (minute + second / 60.0f) * 6.0f * (float)M_PI / 180.0f;
+    const float sa = second * 6.0f * (float)M_PI / 180.0f;
 
-    lv_layer_t layer;
-    lv_canvas_init_layer(_clock_canvas, &layer);
-
-    lv_draw_line_dsc_t dsc;
-    lv_draw_line_dsc_init(&dsc);
-    dsc.color = COLOR_FG;
-
-    auto draw_hand = [&](float angle, int length, int width) {
-        dsc.width = width;
-        dsc.p1.x = cx;
-        dsc.p1.y = cy;
-        dsc.p2.x = cx + (int)(length * std::cos(angle - (float)M_PI / 2.0f));
-        dsc.p2.y = cy + (int)(length * std::sin(angle - (float)M_PI / 2.0f));
-        lv_draw_line(&layer, &dsc);
+    // angle measured clockwise from 12 o'clock
+    auto set_hand = [&](lv_obj_t* line, lv_point_precise_t* pts, float angle, float len) {
+        pts[0].x = cx;
+        pts[0].y = cy;
+        pts[1].x = cx + len * std::sin(angle);
+        pts[1].y = cy - len * std::cos(angle);
+        lv_line_set_points(line, pts, 2);
     };
 
-    draw_hand(hour_angle, 24, 5);
-    draw_hand(minute_angle, 36, 3);
-    dsc.color = COLOR_ACCENT;
-    draw_hand(second_angle, 44, 2);
-
-    lv_canvas_finish_layer(_clock_canvas, &layer);
+    set_hand(_hour_line, _hour_pts, ha, R * 0.50f);
+    set_hand(_min_line, _min_pts, ma, R * 0.74f);
+    set_hand(_sec_line, _sec_pts, sa, R * 0.90f);
 }
 
 void AppClaudeMeter::_update_clock_digital(const struct tm& tm_info)
@@ -702,13 +862,13 @@ void AppClaudeMeter::_update_clock_seg7(const struct tm& tm_info)
     } else {
         _clock_last_sec = tm_info.tm_sec;
 
-        constexpr int CW = 124;
-        constexpr int CH = 50;
-        constexpr int DW = 20;
-        constexpr int DH = 44;
-        constexpr int T = 4;
-        constexpr int GAP = 4;
-        constexpr int COLON_W = 10;
+        constexpr int CW = 212;
+        constexpr int CH = 96;
+        constexpr int DW = 36;
+        constexpr int DH = 84;
+        constexpr int T = 7;
+        constexpr int GAP = 8;
+        constexpr int COLON_W = 16;
 
         lv_canvas_fill_bg(_clock_face_canvas, SEG7_OFF, LV_OPA_TRANSP);
         // wipe the whole canvas to a darker bg first
@@ -759,12 +919,12 @@ void AppClaudeMeter::_update_clock_vfd(const struct tm& tm_info)
     if (tm_info.tm_sec != _clock_last_sec) {
         _clock_last_sec = tm_info.tm_sec;
 
-        constexpr int CW = 128;
-        constexpr int CH = 32;
-        constexpr int DOT = 3;
-        constexpr int PITCH = 4;
-        constexpr int GLYPH_W = 5 * PITCH; // 20
-        constexpr int GLYPH_GAP = 4;
+        constexpr int CW = 224;
+        constexpr int CH = 56;
+        constexpr int DOT = 5;
+        constexpr int PITCH = 7;
+        constexpr int GLYPH_W = 5 * PITCH; // 35
+        constexpr int GLYPH_GAP = 7;
         // HH:MM = 5 glyphs separated by GLYPH_GAP
         constexpr int TOTAL_W = 5 * GLYPH_W + 4 * GLYPH_GAP;
         constexpr int TOTAL_H = 7 * PITCH;
@@ -827,29 +987,70 @@ void AppClaudeMeter::_update_meter()
         status_text = snap.state == Fetch_Err ? snap.last_err.c_str() : "mock";
     }
 
-    char buf[8];
-    lv_color_t h5c = bar_color_for(p5);
+    char buf[12];
+    // 5H: cyan palette (red at high); the big centre number is just the pct.
+    const lv_color_t h5c = metric_color(p5, COLOR_5H);
     std::snprintf(buf, sizeof(buf), "%d%%", (int)(p5 + 0.5f));
     lv_label_set_text(_meter_h5_pct_label, buf);
     lv_obj_set_style_text_color(_meter_h5_pct_label, h5c, 0);
     lv_bar_set_value(_meter_h5_bar, (int)(p5 + 0.5f), LV_ANIM_OFF);
     lv_obj_set_style_bg_color(_meter_h5_bar, h5c, LV_PART_INDICATOR);
+    set_ring(_meter_h5_arc, p5, h5c);
 
-    lv_color_t d7c = bar_color_for(p7);
-    std::snprintf(buf, sizeof(buf), "%d%%", (int)(p7 + 0.5f));
+    // 7D: amber palette (red at high); keeps its "7D xx%" label.
+    const lv_color_t d7c = metric_color(p7, COLOR_7D);
+    std::snprintf(buf, sizeof(buf), "7D %d%%", (int)(p7 + 0.5f));
     lv_label_set_text(_meter_d7_pct_label, buf);
     lv_obj_set_style_text_color(_meter_d7_pct_label, d7c, 0);
     lv_bar_set_value(_meter_d7_bar, (int)(p7 + 0.5f), LV_ANIM_OFF);
     lv_obj_set_style_bg_color(_meter_d7_bar, d7c, LV_PART_INDICATOR);
+    set_ring(_meter_d7_arc, p7, d7c);
 
     lv_label_set_text(_meter_status_label, status_text);
+}
+
+void AppClaudeMeter::_wake()
+{
+    _display_on = true;
+    _pinned = false;
+    HAL::Backlight().on();
+    _show_screen(0); // wake back to the first screen (clock)
+}
+
+void AppClaudeMeter::_handle_tap()
+{
+    if (_booting) return; // ignore taps until the clock is up
+    const std::uint32_t now = HAL::SysCtrl().millis();
+    const bool is_double = (now - _last_click_ms) < DOUBLE_TAP_MS;
+    _last_click_ms = now;
+    _last_interaction_ms = now;
+
+    // If the display was asleep, the tap just wakes it back to the clock.
+    if (!_display_on) {
+        _wake();
+        return;
+    }
+
+    HAL::Backlight().on();
+
+    if (is_double) {
+        // Double-tap pins the current screen: stays on, never sleeps, no cycle.
+        _pinned = true;
+        return;
+    }
+
+    // Single tap cycles to the next screen and clears any pin.
+    _pinned = false;
+    if (!_screens.empty()) {
+        _show_screen((_screen_idx + 1) % (int)_screens.size());
+    }
 }
 
 void AppClaudeMeter::_on_root_clicked(lv_event_t* e)
 {
     auto* self = static_cast<AppClaudeMeter*>(lv_event_get_user_data(e));
     if (!self) return;
-    self->_toggle_view();
+    self->_handle_tap();
 }
 
 /* ------------------------------ HTTP fetch ------------------------------ */
@@ -869,6 +1070,10 @@ void AppClaudeMeter::_stop_fetch_thread()
 
 void AppClaudeMeter::_fetch_loop()
 {
+    using BL = hal_components::BacklightBase;
+    bool prev_err = false;     // was the last poll an error? (pulse only on entry)
+    bool prev_limit = false;   // was usage already over the danger line?
+
     // First-fetch attempt on startup, then poll every FETCH_PERIOD_SEC.
     while (!_fetch_stop.load()) {
         Snapshot fresh;
@@ -882,6 +1087,25 @@ void AppClaudeMeter::_fetch_loop()
                 _snapshot.state = Fetch_Err;
                 _snapshot.last_err = fresh.last_err;
             }
+        }
+
+        // Backlight notifications (no-op on platforms without a backlight).
+        // Success pulses on every poll; "limit reached" supersedes it when
+        // usage crosses the danger line; errors pulse once per error episode.
+        if (ok) {
+            const bool limit = (fresh.pct_five_hour >= DANGER_THRESHOLD) ||
+                               (fresh.pct_seven_day >= DANGER_THRESHOLD);
+            if (limit && !prev_limit) {
+                HAL::Backlight().notify(BL::Notify_LimitReached);
+            } else {
+                HAL::Backlight().notify(BL::Notify_FetchOk);
+            }
+            prev_limit = limit;
+            prev_err = false;
+        } else {
+            if (!prev_err) HAL::Backlight().notify(BL::Notify_FetchErr);
+            prev_err = true;
+            prev_limit = false;
         }
 
         if (ok) {

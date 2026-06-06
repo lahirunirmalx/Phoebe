@@ -27,6 +27,10 @@ public:
         std::string widgetA = "time";
         std::string widgetB = "date";
 
+        // Timezone offset from UTC, in minutes (e.g. +330 = UTC+5:30). Applied
+        // via the TZ env var on ESP32 so localtime() is correct.
+        int tzOffsetMin = 0;
+
         // Claude usage endpoint (consumed by AppClaudeMeter).
         // base: e.g. "http://127.0.0.1:7878"
         // bearer: opaque API token sent as "Authorization: Bearer <token>"

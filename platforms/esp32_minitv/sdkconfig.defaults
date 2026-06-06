@@ -1,0 +1,55 @@
+# Freenove ESP32 Mini TV (FNK0112): classic ESP32 (Xtensa LX6, 4 MB) + 240x240
+# ST7789 SPI display + capacitive touch T9. Forked from platforms/esp32_idf_test.
+CONFIG_IDF_TARGET="esp32"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Arduino-as-component: compile all libraries. The captive portal needs
+# WebServer + DNSServer (in addition to WiFi/HTTPClient), so don't restrict
+# the build with selective compilation on this board.
+CONFIG_ARDUINO_SELECTIVE_COMPILATION=n
+
+CONFIG_BT_ENABLED=y
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=9000
+
+# Classic ESP32 uses UART console (no USB-JTAG like c6/s3/c3).
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# Disable brownout detector -- USB power into the WROOM-32D dev module
+# regularly dips below the 2.43 V default threshold during WiFi PHY init,
+# triggering a hard reset before the app gets anywhere.
+CONFIG_ESP_BROWNOUT_DET=n
+
+CONFIG_ESP_TASK_WDT_EN=n
+CONFIG_ESP_WIFI_DYNAMIC_RX_MGMT_BUFFER=y
+CONFIG_ESP_WIFI_GMAC_SUPPORT=n
+CONFIG_FREERTOS_HZ=1000
+CONFIG_LWIP_HOOK_IP6_INPUT_NONE=y
+CONFIG_MBEDTLS_ECP_RESTARTABLE=y
+CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM=y
+# arduino-esp32 v2's WiFiClientSecure / ssl_client.cpp body is guarded by
+# MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED; without it the symbols vanish at
+# link time even though we don't call HTTPS.
+CONFIG_MBEDTLS_PSK_MODES=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_USE_CLIB_STRING=y
+CONFIG_LV_USE_CLIB_SPRINTF=y
+CONFIG_LV_DEF_REFR_PERIOD=16
+CONFIG_LV_USE_THEME_MONO=y
+CONFIG_LV_BUILD_EXAMPLES=n
+# AppClaudeMeter and the watch faces reference 14/24/48 px Montserrat
+# (48 px for the big digital + animated clock on the 240x240 panel).
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
+CONFIG_FMB_TCP_UID_ENABLED=y
+# std::thread for AppClaudeMeter's fetch loop runs HTTPClient + JSON parse;
+# 3 KB default isn't enough.
+CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=8192
+# Dual-core split: pin std::thread (AppClaudeMeter's Claude fetch loop) to the
+# NETWORK core (PRO_CPU / core 0). The UI task is pinned to APP_CPU (core 1) in
+# app_main.cpp. Keeps LVGL rendering off the same core as WiFi/HTTP work.
+CONFIG_PTHREAD_TASK_CORE_DEFAULT=0
+CONFIG_PTHREAD_DEFAULT_CORE_0=y

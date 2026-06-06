@@ -15,10 +15,12 @@
 #include <atomic>
 #include <cstdint>
 #include <ctime>
+#include <functional>
 #include <mooncake.h>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 #include <lvgl.h>
 
 class AppClaudeMeter : public mooncake::AppAbility {
@@ -32,7 +34,14 @@ public:
     void onClose() override;
 
 private:
-    enum View { VIEW_CLOCK = 0, VIEW_METER = 1 };
+    // A cycleable screen: a full-screen container plus an update callback.
+    // Tap cycles through _screens; double-tap pins the current one. Add a new
+    // app by building its container and calling _register_screen() in _build_ui.
+    struct Screen {
+        std::string name;
+        lv_obj_t* container = nullptr;
+        std::function<void()> update;
+    };
 
     enum FetchState { Fetch_Idle = 0, Fetch_OK, Fetch_Err };
 
@@ -41,9 +50,14 @@ private:
     // "seg7" -> WF_Seg7 (7-segment LCD); "vfd" -> WF_VFD (5x7 dot-matrix).
     enum WatchFace { WF_Analog = 0, WF_Digital, WF_Animated, WF_Seg7, WF_VFD };
 
-    View _view = VIEW_CLOCK;
+    std::vector<Screen> _screens;           // registered screens, cycled by tap
+    int _screen_idx = 0;                    // index of the currently shown screen
     WatchFace _watch_face = WF_Analog;
     std::uint32_t _last_tick_ms = 0;
+    std::uint32_t _last_interaction_ms = 0; // for display-sleep timing
+    std::uint32_t _last_click_ms = 0;       // for double-tap detection
+    bool _pinned = false;                   // current screen pinned: no sleep, no cycle
+    bool _display_on = true;                // our view of the backlight state
 
     // Background fetch -----------------------------------------------------
     std::thread _fetch_thread;
@@ -64,6 +78,12 @@ private:
     // Root container fills the screen and owns the click event.
     lv_obj_t* _root = nullptr;
 
+    // Boot splash shown until the clock is synced via SNTP.
+    bool _booting = true;
+    lv_obj_t* _boot_container = nullptr;
+    lv_obj_t* _boot_arc = nullptr;
+    lv_anim_t _boot_anim;
+
     // Clock view widgets (shared across faces)
     lv_obj_t* _clock_container = nullptr;
     lv_obj_t* _clock_time_label = nullptr;
@@ -71,9 +91,15 @@ private:
     lv_obj_t* _clock_5h_bar = nullptr;
     lv_obj_t* _clock_5h_pct_label = nullptr;
 
-    // Analog-only
-    lv_obj_t* _clock_canvas = nullptr;
+    // Analog-only: full-screen clock drawn with lightweight lv_line hands.
+    lv_obj_t* _clock_canvas = nullptr;        // (unused by analog now; kept for cleanup)
     std::uint8_t* _clock_canvas_buf = nullptr;
+    lv_obj_t* _hour_line = nullptr;
+    lv_obj_t* _min_line = nullptr;
+    lv_obj_t* _sec_line = nullptr;
+    lv_point_precise_t _hour_pts[2];
+    lv_point_precise_t _min_pts[2];
+    lv_point_precise_t _sec_pts[2];
 
     // Digital-only
     lv_obj_t* _clock_sec_label = nullptr;
@@ -96,6 +122,8 @@ private:
     lv_obj_t* _meter_d7_label = nullptr;
     lv_obj_t* _meter_d7_pct_label = nullptr;
     lv_obj_t* _meter_d7_bar = nullptr;
+    lv_obj_t* _meter_h5_arc = nullptr;   // round usage gauges
+    lv_obj_t* _meter_d7_arc = nullptr;
     lv_obj_t* _meter_status_label = nullptr;
 
     void _build_ui();
@@ -107,8 +135,12 @@ private:
     void _build_clock_seg7();
     void _build_clock_vfd();
     void _build_meter_view();
-    void _toggle_view();
-    void _show_view(View v);
+    void _build_boot_screen();
+    bool _time_is_synced() const;
+    void _register_screen(const char* name, lv_obj_t* container, std::function<void()> update);
+    void _show_screen(int idx);
+    void _handle_tap();   // single = cycle screens, double = pin current, asleep = wake
+    void _wake();         // turn backlight on, show first screen, unpin
     void _update_clock();
     void _update_clock_5h_bar();
     void _update_clock_analog(const struct tm& tm_info);

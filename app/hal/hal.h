@@ -22,6 +22,7 @@
 #include "components/ble.h"
 #include "components/wifi_manager.h"
 #include "components/http_client.h"
+#include "components/backlight.h"
 
 /**
  * @brief Hardware abstraction layer, providing unified hardware/platform-specific behavior interfaces
@@ -77,6 +78,7 @@ public:
     hal_components::BleBase& Ble();
     hal_components::WifiManagerBase& Wifi();
     hal_components::HttpClientBase& Http();
+    hal_components::BacklightBase& Backlight();
 
 protected:
     // Component instance management
@@ -92,6 +94,7 @@ protected:
         std::unique_ptr<hal_components::BleBase> ble;
         std::unique_ptr<hal_components::WifiManagerBase> wifi;
         std::unique_ptr<hal_components::HttpClientBase> http_client;
+        std::unique_ptr<hal_components::BacklightBase> backlight;
     };
     Components_t _components;
 };
@@ -181,6 +184,10 @@ inline hal_components::WifiManagerBase& Wifi()
 inline hal_components::HttpClientBase& Http()
 {
     return Get().Http();
+}
+inline hal_components::BacklightBase& Backlight()
+{
+    return Get().Backlight();
 }
 
 } // namespace HAL
