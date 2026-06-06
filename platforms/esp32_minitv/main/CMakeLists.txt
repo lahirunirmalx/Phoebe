@@ -22,7 +22,4 @@ idf_component_register(SRCS "app_main.cpp" ${APP_LAYER_SRCS} ${MY_HAL_SRCS}
 # watch faces fill this panel. Desktop keeps the default.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     PHOEBE_SCREEN_W=240
-    PHOEBE_SCREEN_H=240
-    # Pin the watch face to analog (overrides the stored/portal watchFace).
-    # Remove this line to let the captive-portal face selection take effect again.
-    PHOEBE_FORCE_WATCHFACE_ANALOG=1)
+    PHOEBE_SCREEN_H=240)

@@ -439,9 +439,6 @@ void AppClaudeMeter::_show_screen(int idx)
 
 AppClaudeMeter::WatchFace AppClaudeMeter::_resolve_watch_face() const
 {
-#ifdef PHOEBE_FORCE_WATCHFACE_ANALOG
-    return WF_Analog; // build pins the face to analog (see main/CMakeLists.txt)
-#endif
     const auto& wf = HAL::SysCfg().getConfig().watchFace;
     if (wf == "digital") return WF_Digital;
     if (wf == "animated") return WF_Animated;
