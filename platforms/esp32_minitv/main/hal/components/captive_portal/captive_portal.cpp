@@ -6,6 +6,7 @@
 #include "captive_portal.h"
 #include "../../ui_signals.h"
 #include <hal/hal.h>
+#include <weather_locations.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
@@ -115,6 +116,16 @@ static void handle_root()
     h += "<label>Widget A</label>" + select_field("widgetA", widgets, 3, c.widgetA);
     h += "<label>Widget B</label>" + select_field("widgetB", widgets, 3, c.widgetB);
 
+    // Weather location (Sri Lanka cities).
+    h += "<label>Weather location</label><select name='city'>";
+    for (int i = 0; i < weather::kLocationCount; ++i) {
+        const char* n = weather::kLocations[i].name;
+        h += "<option value='" + std::string(n) + "'";
+        if (c.weatherCity == n) h += " selected";
+        h += ">" + std::string(n) + "</option>";
+    }
+    h += "</select>";
+
     // Timezone (offset from UTC, in minutes).
     static const int tz_off[]  = {-480, -420, -360, -300, -240, -180, -60, 0, 60, 120, 180,
                                   210, 240, 270, 300, 330, 345, 360, 420, 480, 540, 570, 600, 660, 720};
@@ -157,6 +168,7 @@ static void handle_save()
     if (server.hasArg("widgetA")) c.widgetA = std::string(server.arg("widgetA").c_str());
     if (server.hasArg("widgetB")) c.widgetB = std::string(server.arg("widgetB").c_str());
     if (server.hasArg("tz")) c.tzOffsetMin = server.arg("tz").toInt();
+    if (server.hasArg("city")) c.weatherCity = std::string(server.arg("city").c_str());
     c.mute = server.hasArg("mute");
     c.hapticFeedback = server.hasArg("haptic");
 

@@ -47,7 +47,7 @@ CONFIG_LV_FONT_MONTSERRAT_48=y
 CONFIG_FMB_TCP_UID_ENABLED=y
 # std::thread for AppClaudeMeter's fetch loop runs HTTPClient + JSON parse;
 # 3 KB default isn't enough.
-CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=8192
+CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=16384
 # Dual-core split: pin std::thread (AppClaudeMeter's Claude fetch loop) to the
 # NETWORK core (PRO_CPU / core 0). The UI task is pinned to APP_CPU (core 1) in
 # app_main.cpp. Keeps LVGL rendering off the same core as WiFi/HTTP work.

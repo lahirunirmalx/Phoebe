@@ -126,6 +126,30 @@ private:
     lv_obj_t* _meter_d7_arc = nullptr;
     lv_obj_t* _meter_status_label = nullptr;
 
+    // Weather view widgets + animated icon
+    lv_obj_t* _weather_container = nullptr;
+    lv_obj_t* _wx_city_label = nullptr;
+    lv_obj_t* _wx_temp_label = nullptr;
+    lv_obj_t* _wx_cond_label = nullptr;
+    lv_obj_t* _wx_extra_label = nullptr;
+    lv_obj_t* _wx_sun = nullptr;
+    lv_obj_t* _wx_cloud = nullptr;
+    lv_obj_t* _wx_drops[3] = {nullptr, nullptr, nullptr};
+
+    // Background weather fetch (Open-Meteo)
+    std::thread _weather_thread;
+    std::atomic<bool> _weather_stop{false};
+    std::mutex _weather_mutex;
+    struct WeatherSnapshot {
+        float temp_c = -1000.0f;
+        float humidity = -1.0f;
+        float wind_kmh = -1.0f;
+        int code = -1;       // WMO weather code
+        bool ok = false;
+        std::string err;
+    } _weather;
+    int _wx_last_code = -2;  // for cheap icon-state diffing
+
     void _build_ui();
     void _build_clock_view();
     void _build_clock_5h_bar();
@@ -149,6 +173,13 @@ private:
     void _update_clock_seg7(const struct tm& tm_info);
     void _update_clock_vfd(const struct tm& tm_info);
     void _update_meter();
+    void _build_weather_view();
+    void _update_weather();
+    void _set_weather_icon(int code);     // show/hide icon parts for a WMO code
+    void _start_weather_thread();
+    void _stop_weather_thread();
+    void _weather_loop();
+    bool _weather_fetch_once(WeatherSnapshot& out);
     WatchFace _resolve_watch_face() const;
 
     void _start_fetch_thread();

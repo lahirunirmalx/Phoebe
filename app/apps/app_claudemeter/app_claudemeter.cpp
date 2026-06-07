@@ -6,6 +6,7 @@
  */
 #include "app_claudemeter.h"
 #include "hal/hal.h"
+#include "weather_locations.h"
 #include <ArduinoJson.h>
 #include <chrono>
 #include <cmath>
@@ -60,6 +61,52 @@ const lv_color_t COLOR_ACCENT = LV_COLOR_MAKE(0x99, 0xFF, 0x00);
 // Per-metric palettes so 5H and 7D are visually distinct on the rings + bars.
 const lv_color_t COLOR_5H = LV_COLOR_MAKE(0x33, 0xC8, 0xFF); // cyan
 const lv_color_t COLOR_7D = LV_COLOR_MAKE(0xFF, 0xC0, 0x40); // amber
+
+// Weather icon palette.
+const lv_color_t COLOR_SUN = LV_COLOR_MAKE(0xFF, 0xD2, 0x40);
+const lv_color_t COLOR_CLOUD = LV_COLOR_MAKE(0xCA, 0xD2, 0xDE);
+const lv_color_t COLOR_RAIN = LV_COLOR_MAKE(0x55, 0xAA, 0xFF);
+
+// WMO weather code -> icon category and a short label.
+enum WxCat { WX_CLEAR = 0, WX_CLOUD, WX_RAIN };
+WxCat wx_category(int code)
+{
+    if (code <= 1) return WX_CLEAR;                 // 0 clear, 1 mainly clear
+    if (code == 2 || code == 3 || code == 45 || code == 48) return WX_CLOUD;
+    return WX_RAIN;                                 // drizzle/rain/snow/showers/thunder
+}
+const char* wx_text(int code)
+{
+    switch (code) {
+        case 0:  return "Clear";
+        case 1:  return "Mainly clear";
+        case 2:  return "Partly cloudy";
+        case 3:  return "Overcast";
+        case 45:
+        case 48: return "Fog";
+        case 51:
+        case 53:
+        case 55: return "Drizzle";
+        case 61:
+        case 63:
+        case 65: return "Rain";
+        case 66:
+        case 67: return "Freezing rain";
+        case 71:
+        case 73:
+        case 75:
+        case 77: return "Snow";
+        case 80:
+        case 81:
+        case 82: return "Showers";
+        case 85:
+        case 86: return "Snow showers";
+        case 95:
+        case 96:
+        case 99: return "Thunderstorm";
+        default: return "--";
+    }
+}
 
 // A metric keeps its own hue until usage hits the danger threshold, then turns
 // red -- so 5H/7D stay visually distinct but high usage still reads as alarming.
@@ -229,6 +276,8 @@ AppClaudeMeter::~AppClaudeMeter()
     // make sure the fetch thread isn't joinable when std::thread is destroyed.
     _fetch_stop.store(true);
     if (_fetch_thread.joinable()) _fetch_thread.join();
+    _weather_stop.store(true);
+    if (_weather_thread.joinable()) _weather_thread.join();
 }
 
 void AppClaudeMeter::onCreate()
@@ -271,6 +320,7 @@ void AppClaudeMeter::onOpen()
     HAL::Backlight().on();
 
     _start_fetch_thread();
+    _start_weather_thread();
 }
 
 void AppClaudeMeter::onRunning()
@@ -323,6 +373,7 @@ void AppClaudeMeter::onClose()
     mclog::tagInfo(getAppInfo().name, "on close");
 
     _stop_fetch_thread();
+    _stop_weather_thread();
 
     if (_clock_anim_arc) {
         lv_anim_delete(_clock_anim_arc, NULL);
@@ -357,14 +408,11 @@ void AppClaudeMeter::_build_ui()
     // Build each screen's container, then register it. Tap cycles in this order.
     _build_clock_view();
     _build_meter_view();
+    _build_weather_view();
 
     _register_screen("clock", _clock_container, [this] { _update_clock(); });
     _register_screen("meter", _meter_container, [this] { _update_meter(); });
-
-    // To add another app (e.g. weather): build its full-screen container in a
-    // _build_weather_view() helper, then register it here, e.g.:
-    //   _build_weather_view();
-    //   _register_screen("weather", _weather_container, [this] { _update_weather(); });
+    _register_screen("weather", _weather_container, [this] { _update_weather(); });
 }
 
 void AppClaudeMeter::_build_boot_screen()
@@ -1004,6 +1052,247 @@ void AppClaudeMeter::_update_meter()
     set_ring(_meter_d7_arc, p7, d7c);
 
     lv_label_set_text(_meter_status_label, status_text);
+}
+
+/* ------------------------------ Weather -------------------------------- */
+
+void AppClaudeMeter::_build_weather_view()
+{
+    _weather_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_weather_container);
+    lv_obj_set_size(_weather_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_weather_container, 0, 0);
+    lv_obj_set_style_bg_color(_weather_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_weather_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_weather_container, LV_OBJ_FLAG_CLICKABLE);
+
+    _wx_city_label = lv_label_create(_weather_container);
+    lv_obj_set_style_text_color(_wx_city_label, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_font(_wx_city_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_wx_city_label, "");
+    lv_obj_align(_wx_city_label, LV_ALIGN_TOP_MID, 0, 8);
+
+    // ---- Animated icon (centered around y ~= 78) -------------------------
+    const int icy = 78;
+
+    // Cloud: a rounded body + two puffs.
+    _wx_cloud = lv_obj_create(_weather_container);
+    lv_obj_remove_style_all(_wx_cloud);
+    lv_obj_set_size(_wx_cloud, 78, 30);
+    lv_obj_set_style_radius(_wx_cloud, 15, 0);
+    lv_obj_set_style_bg_color(_wx_cloud, COLOR_CLOUD, 0);
+    lv_obj_set_style_bg_opa(_wx_cloud, LV_OPA_COVER, 0);
+    lv_obj_align(_wx_cloud, LV_ALIGN_TOP_MID, 0, icy);
+    auto puff = [&](int dx, int sz) {
+        lv_obj_t* p = lv_obj_create(_wx_cloud);
+        lv_obj_remove_style_all(p);
+        lv_obj_set_size(p, sz, sz);
+        lv_obj_set_style_radius(p, sz / 2, 0);
+        lv_obj_set_style_bg_color(p, COLOR_CLOUD, 0);
+        lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
+        lv_obj_align(p, LV_ALIGN_TOP_MID, dx, -sz / 2);
+    };
+    puff(-16, 26);
+    puff(14, 32);
+
+    // Sun (drawn after cloud so it sits in front when clear).
+    _wx_sun = lv_obj_create(_weather_container);
+    lv_obj_remove_style_all(_wx_sun);
+    lv_obj_set_size(_wx_sun, 50, 50);
+    lv_obj_set_style_radius(_wx_sun, 25, 0);
+    lv_obj_set_style_bg_color(_wx_sun, COLOR_SUN, 0);
+    lv_obj_set_style_bg_opa(_wx_sun, LV_OPA_COVER, 0);
+    lv_obj_align(_wx_sun, LV_ALIGN_TOP_MID, 0, icy + 2);
+
+    // Raindrops below the cloud.
+    for (int i = 0; i < 3; ++i) {
+        _wx_drops[i] = lv_obj_create(_weather_container);
+        lv_obj_remove_style_all(_wx_drops[i]);
+        lv_obj_set_size(_wx_drops[i], 4, 12);
+        lv_obj_set_style_radius(_wx_drops[i], 2, 0);
+        lv_obj_set_style_bg_color(_wx_drops[i], COLOR_RAIN, 0);
+        lv_obj_set_style_bg_opa(_wx_drops[i], LV_OPA_COVER, 0);
+        lv_obj_align(_wx_drops[i], LV_ALIGN_TOP_MID, (i - 1) * 18, icy + 36);
+    }
+
+    // ---- Stats -----------------------------------------------------------
+    _wx_temp_label = lv_label_create(_weather_container);
+    lv_obj_set_style_text_color(_wx_temp_label, COLOR_FG, 0);
+    lv_obj_set_style_text_font(_wx_temp_label, &lv_font_montserrat_48, 0);
+    lv_label_set_text(_wx_temp_label, "--");
+    lv_obj_align(_wx_temp_label, LV_ALIGN_CENTER, 0, 36);
+
+    _wx_cond_label = lv_label_create(_weather_container);
+    lv_obj_set_style_text_color(_wx_cond_label, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(_wx_cond_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_wx_cond_label, "");
+    lv_obj_align(_wx_cond_label, LV_ALIGN_CENTER, 0, 74);
+
+    _wx_extra_label = lv_label_create(_weather_container);
+    lv_obj_set_style_text_color(_wx_extra_label, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(_wx_extra_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_wx_extra_label, "");
+    lv_obj_align(_wx_extra_label, LV_ALIGN_BOTTOM_MID, 0, -8);
+
+    // ---- Animations ------------------------------------------------------
+    // Sun "breathing" pulse (size + re-center each frame).
+    static lv_anim_t sun_anim;
+    lv_anim_init(&sun_anim);
+    lv_anim_set_var(&sun_anim, _wx_sun);
+    lv_anim_set_exec_cb(&sun_anim, [](void* obj, int32_t v) {
+        auto* s = static_cast<lv_obj_t*>(obj);
+        lv_obj_set_size(s, v, v);
+        lv_obj_align(s, LV_ALIGN_TOP_MID, 0, 78 + 2 + (50 - v) / 2);
+    });
+    lv_anim_set_values(&sun_anim, 46, 56);
+    lv_anim_set_duration(&sun_anim, 1100);
+    lv_anim_set_playback_duration(&sun_anim, 1100);
+    lv_anim_set_repeat_count(&sun_anim, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&sun_anim);
+
+    // Falling raindrops (staggered).
+    const int drop_top = icy + 30;
+    for (int i = 0; i < 3; ++i) {
+        static lv_anim_t drop_anim[3];
+        lv_anim_init(&drop_anim[i]);
+        lv_anim_set_var(&drop_anim[i], _wx_drops[i]);
+        lv_anim_set_exec_cb(&drop_anim[i], [](void* obj, int32_t v) {
+            lv_obj_set_y(static_cast<lv_obj_t*>(obj), v);
+        });
+        lv_anim_set_values(&drop_anim[i], drop_top, drop_top + 22);
+        lv_anim_set_duration(&drop_anim[i], 650);
+        lv_anim_set_delay(&drop_anim[i], i * 200);
+        lv_anim_set_repeat_count(&drop_anim[i], LV_ANIM_REPEAT_INFINITE);
+        lv_anim_start(&drop_anim[i]);
+    }
+
+    _set_weather_icon(-1); // hide all until first fetch
+}
+
+void AppClaudeMeter::_set_weather_icon(int code)
+{
+    if (!_wx_sun) return;
+    const WxCat cat = (code < 0) ? WX_CLOUD : wx_category(code);
+    auto show = [](lv_obj_t* o, bool v) {
+        if (!o) return;
+        if (v) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+    };
+    show(_wx_sun, cat == WX_CLEAR);
+    show(_wx_cloud, cat != WX_CLEAR);
+    for (int i = 0; i < 3; ++i) show(_wx_drops[i], cat == WX_RAIN);
+}
+
+void AppClaudeMeter::_update_weather()
+{
+    if (!_wx_temp_label) return;
+
+    lv_label_set_text(_wx_city_label, HAL::SysCfg().getConfig().weatherCity.c_str());
+
+    WeatherSnapshot w;
+    {
+        std::lock_guard<std::mutex> lock(_weather_mutex);
+        w = _weather;
+    }
+
+    if (!w.ok) {
+        lv_label_set_text(_wx_temp_label, "--");
+        lv_label_set_text(_wx_cond_label, w.err.empty() ? "fetching..." : w.err.c_str());
+        lv_label_set_text(_wx_extra_label, "");
+        if (_wx_last_code != -1) { _set_weather_icon(-1); _wx_last_code = -1; }
+        return;
+    }
+
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "%d\xC2\xB0""C", (int)(w.temp_c + 0.5f)); // NN°C
+    lv_label_set_text(_wx_temp_label, buf);
+    lv_label_set_text(_wx_cond_label, wx_text(w.code));
+
+    char extra[40];
+    std::snprintf(extra, sizeof(extra), "%d%%  %d km/h",
+                  (int)(w.humidity + 0.5f), (int)(w.wind_kmh + 0.5f));
+    lv_label_set_text(_wx_extra_label, extra);
+
+    if (w.code != _wx_last_code) {
+        _set_weather_icon(w.code);
+        _wx_last_code = w.code;
+    }
+}
+
+void AppClaudeMeter::_start_weather_thread()
+{
+    if (_weather_thread.joinable()) return;
+    _weather_stop.store(false);
+    _weather_thread = std::thread([this] { _weather_loop(); });
+}
+
+void AppClaudeMeter::_stop_weather_thread()
+{
+    _weather_stop.store(true);
+    if (_weather_thread.joinable()) _weather_thread.join();
+}
+
+void AppClaudeMeter::_weather_loop()
+{
+    while (!_weather_stop.load()) {
+        WeatherSnapshot fresh;
+        bool ok = _weather_fetch_once(fresh);
+        {
+            std::lock_guard<std::mutex> lock(_weather_mutex);
+            if (ok) {
+                _weather = fresh;
+            } else {
+                _weather.ok = false;
+                _weather.err = fresh.err;
+            }
+        }
+        if (ok) {
+            mclog::tagInfo(getAppInfo().name, "weather ok: {:.0f}C code={}", fresh.temp_c, fresh.code);
+        } else {
+            mclog::tagWarn(getAppInfo().name, "weather err: {}", fresh.err);
+        }
+        // 15 min on success, retry every 20 s while erroring.
+        int wait_sec = ok ? 900 : 20;
+        for (int i = 0; i < wait_sec * 4 && !_weather_stop.load(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+    }
+}
+
+bool AppClaudeMeter::_weather_fetch_once(WeatherSnapshot& out)
+{
+    const auto& loc = weather::find(HAL::SysCfg().getConfig().weatherCity);
+
+    char url[200];
+    std::snprintf(url, sizeof(url),
+                  "https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f"
+                  "&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code",
+                  loc.lat, loc.lon);
+
+    auto resp = HAL::Http().get(url, "", 15); // TLS handshake can be slow
+    if (resp.http_code != 200) {
+        out.err = resp.http_code == 0 ? (resp.error.empty() ? "net err" : resp.error)
+                                      : "HTTP " + std::to_string(resp.http_code);
+        return false;
+    }
+
+    JsonDocument doc;
+    if (deserializeJson(doc, resp.body) != DeserializationError::Ok) {
+        out.err = "bad json";
+        return false;
+    }
+    JsonObject cur = doc["current"];
+    if (cur.isNull()) {
+        out.err = "no data";
+        return false;
+    }
+    out.temp_c = cur["temperature_2m"] | -1000.0f;
+    out.humidity = cur["relative_humidity_2m"] | -1.0f;
+    out.wind_kmh = cur["wind_speed_10m"] | -1.0f;
+    out.code = cur["weather_code"] | -1;
+    out.ok = (out.temp_c > -100.0f);
+    if (!out.ok) out.err = "no fields";
+    return out.ok;
 }
 
 void AppClaudeMeter::_wake()

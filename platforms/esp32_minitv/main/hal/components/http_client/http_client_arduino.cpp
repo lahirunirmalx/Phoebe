@@ -36,6 +36,7 @@ hal_components::HttpClientBase::Response HttpClientArduino::get(const std::strin
     if (is_https) {
         static WiFiClientSecure secure;
         secure.setInsecure();
+        secure.setHandshakeTimeout(timeoutSec); // bound the TLS handshake (else it can hang)
         begun = http.begin(secure, url.c_str());
     } else {
         static WiFiClient client;

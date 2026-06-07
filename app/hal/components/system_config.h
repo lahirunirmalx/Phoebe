@@ -31,6 +31,9 @@ public:
         // via the TZ env var on ESP32 so localtime() is correct.
         int tzOffsetMin = 0;
 
+        // Weather location (city name from app/weather_locations.h).
+        std::string weatherCity = "Colombo";
+
         // Claude usage endpoint (consumed by AppClaudeMeter).
         // base: e.g. "http://127.0.0.1:7878"
         // bearer: opaque API token sent as "Authorization: Bearer <token>"
