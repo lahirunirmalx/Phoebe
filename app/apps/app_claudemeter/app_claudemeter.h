@@ -181,6 +181,26 @@ private:
     struct MeetingSnap { std::string title; long start_epoch = 0; bool ok = false; std::string err; } _meet;
     struct CurrencySnap { float usd = -1, eur = -1, gbp = -1; bool ok = false; std::string err; } _cur;
     struct AqiSnap { int aqi = -1; float pm25 = -1; bool ok = false; std::string err; } _aqi;
+    struct DayFc { int code = -1; float tmax = 0, tmin = 0; int wday = 0; };
+    struct ForecastSnap { DayFc d[3]; bool ok = false; std::string err; } _fc;
+    struct SunSnap { char rise[6] = "--:--"; char set[6] = "--:--"; bool ok = false; std::string err; } _sun;
+    struct NetSnap { int latency_ms = -1; bool ok = false; std::string err; } _net;
+
+    // Forecast / Sun-moon / Network screen widgets
+    lv_obj_t* _fc_container = nullptr;
+    lv_obj_t* _fc_name[3] = {nullptr, nullptr, nullptr};
+    lv_obj_t* _fc_icon[3] = {nullptr, nullptr, nullptr};
+    lv_obj_t* _fc_temp[3] = {nullptr, nullptr, nullptr};
+    lv_obj_t* _sun_container = nullptr;
+    lv_obj_t* _sun_rise_lbl = nullptr;
+    lv_obj_t* _sun_set_lbl = nullptr;
+    lv_obj_t* _moon_disc = nullptr;
+    lv_obj_t* _moon_shadow = nullptr;
+    lv_obj_t* _moon_name_lbl = nullptr;
+    lv_obj_t* _net_container = nullptr;
+    lv_obj_t* _net_arc = nullptr;
+    lv_obj_t* _net_value_lbl = nullptr;
+    lv_obj_t* _net_sub_lbl = nullptr;
 
     void _build_ui();
     void _build_clock_view();
@@ -223,6 +243,14 @@ private:
     bool _fetch_meeting(MeetingSnap& out);
     bool _fetch_currency(CurrencySnap& out);
     bool _fetch_aqi(AqiSnap& out);
+    bool _fetch_daily(ForecastSnap& fc, SunSnap& sun);   // one Open-Meteo call feeds #6 + #7
+    bool _fetch_net(NetSnap& out);
+    void _build_forecast_view();
+    void _update_forecast();
+    void _build_sun_view();
+    void _update_sun();
+    void _build_net_view();
+    void _update_net();
     void _build_weather_view();
     void _update_weather();
     void _set_weather_icon(int code);     // show/hide icon parts for a WMO code

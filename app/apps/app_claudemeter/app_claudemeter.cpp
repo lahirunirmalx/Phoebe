@@ -10,6 +10,7 @@
 #include <ArduinoJson.h>
 #include <cctype>
 #include <chrono>
+#include <cstring>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
@@ -419,6 +420,9 @@ void AppClaudeMeter::_build_ui()
     _build_meeting_view();
     _build_currency_view();
     _build_aqi_view();
+    _build_forecast_view();
+    _build_sun_view();
+    _build_net_view();
 
     _register_screen("clock", _clock_container, [this] { _update_clock(); });
     _register_screen("meter", _meter_container, [this] { _update_meter(); });
@@ -429,6 +433,9 @@ void AppClaudeMeter::_build_ui()
     _register_screen("meeting", _meet_container, [this] { _update_meeting(); });
     _register_screen("currency", _cur_container, [this] { _update_currency(); });
     _register_screen("aqi", _aqi_container, [this] { _update_aqi(); });
+    _register_screen("forecast", _fc_container, [this] { _update_forecast(); });
+    _register_screen("sunmoon", _sun_container, [this] { _update_sun(); });
+    _register_screen("network", _net_container, [this] { _update_net(); });
 }
 
 void AppClaudeMeter::_build_boot_screen()
@@ -1663,11 +1670,16 @@ void AppClaudeMeter::_data_loop()
         MeetingSnap m;  bool mok = _fetch_meeting(m);
         CurrencySnap c; bool cok = _fetch_currency(c);
         AqiSnap a;      bool aok = _fetch_aqi(a);
+        ForecastSnap fc; SunSnap sun; bool dok = _fetch_daily(fc, sun);
+        NetSnap n;      bool nok = _fetch_net(n);
         {
             std::lock_guard<std::mutex> lock(_data_mutex);
             if (mok) _meet = m; else { _meet.ok = false; _meet.err = m.err; }
             if (cok) _cur = c;  else { _cur.ok = false;  _cur.err = c.err; }
             if (aok) _aqi = a;  else { _aqi.ok = false;  _aqi.err = a.err; }
+            if (dok) { _fc = fc; _sun = sun; }
+            else { _fc.ok = false; _fc.err = fc.err; _sun.ok = false; _sun.err = sun.err; }
+            if (nok) _net = n; else { _net.ok = false; _net.err = n.err; }
         }
         // refresh every 10 minutes
         for (int i = 0; i < 600 * 4 && !_data_stop.load(); ++i) {
@@ -1764,6 +1776,290 @@ bool AppClaudeMeter::_fetch_aqi(AqiSnap& out)
     out.ok = (out.aqi >= 0);
     if (!out.ok) out.err = "no fields";
     return out.ok;
+}
+
+/* ---------------- Forecast / Sun-moon / Network ------------------------ */
+
+namespace {
+const char* WDAY[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+
+// Style a small forecast icon obj for a weather category.
+void style_mini_icon(lv_obj_t* o, int code)
+{
+    if (!o) return;
+    lv_color_t col = COLOR_CLOUD;
+    int radius = 6;
+    switch (wx_category(code)) {
+        case WX_CLEAR: col = COLOR_SUN; radius = 14; break;  // round = sun
+        case WX_CLOUD: col = COLOR_CLOUD; radius = 6; break;
+        case WX_RAIN:  col = COLOR_RAIN; radius = 6; break;
+    }
+    lv_obj_set_style_bg_color(o, col, 0);
+    lv_obj_set_style_radius(o, radius, 0);
+}
+} // namespace
+
+void AppClaudeMeter::_build_forecast_view()
+{
+    _fc_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_fc_container);
+    lv_obj_set_size(_fc_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_fc_container, 0, 0);
+    lv_obj_set_style_bg_color(_fc_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_fc_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_fc_container, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* title = lv_label_create(_fc_container);
+    lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_label_set_text(title, "3-DAY FORECAST");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+
+    for (int i = 0; i < 3; ++i) {
+        const int dx = (i - 1) * 74;
+        _fc_name[i] = lv_label_create(_fc_container);
+        lv_obj_set_style_text_color(_fc_name[i], COLOR_FG, 0);
+        lv_obj_set_style_text_font(_fc_name[i], &lv_font_montserrat_24, 0);
+        lv_label_set_text(_fc_name[i], "");
+        lv_obj_align(_fc_name[i], LV_ALIGN_TOP_MID, dx, 52);
+
+        _fc_icon[i] = lv_obj_create(_fc_container);
+        lv_obj_remove_style_all(_fc_icon[i]);
+        lv_obj_set_size(_fc_icon[i], 30, 30);
+        lv_obj_set_style_bg_opa(_fc_icon[i], LV_OPA_COVER, 0);
+        lv_obj_align(_fc_icon[i], LV_ALIGN_TOP_MID, dx, 96);
+
+        _fc_temp[i] = lv_label_create(_fc_container);
+        lv_obj_set_style_text_color(_fc_temp[i], COLOR_LABEL_DIM, 0);
+        lv_obj_set_style_text_font(_fc_temp[i], &lv_font_montserrat_14, 0);
+        lv_label_set_text(_fc_temp[i], "");
+        lv_obj_align(_fc_temp[i], LV_ALIGN_TOP_MID, dx, 146);
+    }
+}
+
+void AppClaudeMeter::_update_forecast()
+{
+    if (!_fc_name[0]) return;
+    ForecastSnap fc;
+    {
+        std::lock_guard<std::mutex> lock(_data_mutex);
+        fc = _fc;
+    }
+    for (int i = 0; i < 3; ++i) {
+        if (!fc.ok) {
+            lv_label_set_text(_fc_name[i], i == 0 ? (fc.err.empty() ? "..." : fc.err.c_str()) : "");
+            lv_label_set_text(_fc_temp[i], "");
+            lv_obj_add_flag(_fc_icon[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_clear_flag(_fc_icon[i], LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(_fc_name[i], i == 0 ? "Today" : WDAY[fc.d[i].wday % 7]);
+        style_mini_icon(_fc_icon[i], fc.d[i].code);
+        char b[24];
+        std::snprintf(b, sizeof(b), "%d/%d", (int)(fc.d[i].tmax + 0.5f), (int)(fc.d[i].tmin + 0.5f));
+        lv_label_set_text(_fc_temp[i], b);
+    }
+}
+
+void AppClaudeMeter::_build_sun_view()
+{
+    _sun_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_sun_container);
+    lv_obj_set_size(_sun_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_sun_container, 0, 0);
+    lv_obj_set_style_bg_color(_sun_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_sun_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_sun_container, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* title = lv_label_create(_sun_container);
+    lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_label_set_text(title, "SUN & MOON");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+
+    _sun_rise_lbl = lv_label_create(_sun_container);
+    lv_obj_set_style_text_color(_sun_rise_lbl, COLOR_SUN, 0);
+    lv_obj_set_style_text_font(_sun_rise_lbl, &lv_font_montserrat_24, 0);
+    lv_label_set_text(_sun_rise_lbl, "rise --:--");
+    lv_obj_align(_sun_rise_lbl, LV_ALIGN_TOP_MID, 0, 42);
+
+    _sun_set_lbl = lv_label_create(_sun_container);
+    lv_obj_set_style_text_color(_sun_set_lbl, COLOR_7D, 0);
+    lv_obj_set_style_text_font(_sun_set_lbl, &lv_font_montserrat_24, 0);
+    lv_label_set_text(_sun_set_lbl, "set --:--");
+    lv_obj_align(_sun_set_lbl, LV_ALIGN_TOP_MID, 0, 76);
+
+    // Moon: white disc + offset bg-shadow circle approximates the phase.
+    _moon_disc = lv_obj_create(_sun_container);
+    lv_obj_remove_style_all(_moon_disc);
+    lv_obj_set_size(_moon_disc, 70, 70);
+    lv_obj_set_style_radius(_moon_disc, 35, 0);
+    lv_obj_set_style_bg_color(_moon_disc, lv_color_hex(0xEFEFEF), 0);
+    lv_obj_set_style_bg_opa(_moon_disc, LV_OPA_COVER, 0);
+    lv_obj_set_style_clip_corner(_moon_disc, true, 0);
+    lv_obj_align(_moon_disc, LV_ALIGN_CENTER, 0, 28);
+
+    _moon_shadow = lv_obj_create(_moon_disc);
+    lv_obj_remove_style_all(_moon_shadow);
+    lv_obj_set_size(_moon_shadow, 70, 70);
+    lv_obj_set_style_radius(_moon_shadow, 35, 0);
+    lv_obj_set_style_bg_color(_moon_shadow, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_moon_shadow, LV_OPA_COVER, 0);
+    lv_obj_align(_moon_shadow, LV_ALIGN_CENTER, 0, 0);
+
+    _moon_name_lbl = lv_label_create(_sun_container);
+    lv_obj_set_style_text_color(_moon_name_lbl, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(_moon_name_lbl, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_moon_name_lbl, "");
+    lv_obj_align(_moon_name_lbl, LV_ALIGN_BOTTOM_MID, 0, -8);
+}
+
+void AppClaudeMeter::_update_sun()
+{
+    if (!_sun_rise_lbl) return;
+    SunSnap s;
+    {
+        std::lock_guard<std::mutex> lock(_data_mutex);
+        s = _sun;
+    }
+    char b[24];
+    std::snprintf(b, sizeof(b), "rise %s", s.ok ? s.rise : "--:--"); lv_label_set_text(_sun_rise_lbl, b);
+    std::snprintf(b, sizeof(b), "set  %s", s.ok ? s.set : "--:--"); lv_label_set_text(_sun_set_lbl, b);
+
+    // Moon phase from a known new moon (2000-01-06 18:14 UTC).
+    const double SYNODIC = 29.530588853;
+    const long ref = 947182440;
+    double age = (double)((long)time(nullptr) - ref) / 86400.0;
+    age = age - SYNODIC * std::floor(age / SYNODIC); // 0..29.53
+    const double illum = (1.0 - std::cos(2.0 * M_PI * age / SYNODIC)) / 2.0;
+    const bool waxing = age < SYNODIC / 2.0;
+
+    // Offset the shadow circle: 0 illum -> centered (dark/new); full -> off-disc.
+    const int dx = (int)((waxing ? -1 : 1) * illum * 140.0); // 140 = 2*diameter-ish
+    lv_obj_align(_moon_shadow, LV_ALIGN_CENTER, dx, 0);
+
+    const char* name = "New Moon";
+    if (age < 1.8) name = "New Moon";
+    else if (age < 5.5) name = "Waxing Crescent";
+    else if (age < 9.2) name = "First Quarter";
+    else if (age < 12.9) name = "Waxing Gibbous";
+    else if (age < 16.6) name = "Full Moon";
+    else if (age < 20.3) name = "Waning Gibbous";
+    else if (age < 23.9) name = "Last Quarter";
+    else if (age < 27.6) name = "Waning Crescent";
+    char mb[40];
+    std::snprintf(mb, sizeof(mb), "%s  %d%%", name, (int)(illum * 100 + 0.5));
+    lv_label_set_text(_moon_name_lbl, mb);
+}
+
+void AppClaudeMeter::_build_net_view()
+{
+    _net_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_net_container);
+    lv_obj_set_size(_net_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_net_container, 0, 0);
+    lv_obj_set_style_bg_color(_net_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_net_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_net_container, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* title = lv_label_create(_net_container);
+    lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_label_set_text(title, "NETWORK PING");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+
+    _net_arc = make_ring(_net_container, 150, 12);
+    lv_arc_set_range(_net_arc, 0, 100);
+    lv_obj_align(_net_arc, LV_ALIGN_CENTER, 0, -6);
+
+    _net_value_lbl = lv_label_create(_net_container);
+    lv_obj_set_style_text_color(_net_value_lbl, COLOR_FG, 0);
+    lv_obj_set_style_text_font(_net_value_lbl, &lv_font_montserrat_48, 0);
+    lv_label_set_text(_net_value_lbl, "--");
+    lv_obj_align(_net_value_lbl, LV_ALIGN_CENTER, 0, -14);
+
+    _net_sub_lbl = lv_label_create(_net_container);
+    lv_obj_set_style_text_color(_net_sub_lbl, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(_net_sub_lbl, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_net_sub_lbl, "");
+    lv_obj_align(_net_sub_lbl, LV_ALIGN_CENTER, 0, 20);
+}
+
+void AppClaudeMeter::_update_net()
+{
+    if (!_net_value_lbl) return;
+    NetSnap n;
+    {
+        std::lock_guard<std::mutex> lock(_data_mutex);
+        n = _net;
+    }
+    if (!n.ok) {
+        lv_label_set_text(_net_value_lbl, "--");
+        lv_label_set_text(_net_sub_lbl, n.err.empty() ? "measuring..." : n.err.c_str());
+        return;
+    }
+    const lv_color_t c = (n.latency_ms < 100) ? COLOR_OK : (n.latency_ms < 300 ? COLOR_WARN : COLOR_DANGER);
+    char b[16];
+    std::snprintf(b, sizeof(b), "%d", n.latency_ms);
+    lv_label_set_text(_net_value_lbl, b);
+    lv_obj_set_style_text_color(_net_value_lbl, c, 0);
+    int v = 100 - n.latency_ms / 5; if (v < 0) v = 0; if (v > 100) v = 100;
+    lv_arc_set_value(_net_arc, v);
+    lv_obj_set_style_arc_color(_net_arc, c, LV_PART_INDICATOR);
+    lv_label_set_text(_net_sub_lbl,
+                      n.latency_ms < 100 ? "ms  good" : (n.latency_ms < 300 ? "ms  ok" : "ms  poor"));
+}
+
+bool AppClaudeMeter::_fetch_daily(ForecastSnap& fc, SunSnap& sun)
+{
+    const auto& loc = weather::find(HAL::SysCfg().getConfig().weatherCity);
+    char url[256];
+    std::snprintf(url, sizeof(url),
+                  "https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f"
+                  "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset"
+                  "&forecast_days=3&timezone=auto",
+                  loc.lat, loc.lon);
+    auto resp = HAL::Http().get(url, "", 15);
+    if (resp.http_code != 200) {
+        fc.err = sun.err = (resp.http_code == 0 ? "net err" : "HTTP " + std::to_string(resp.http_code));
+        return false;
+    }
+    JsonDocument doc;
+    if (deserializeJson(doc, resp.body) != DeserializationError::Ok) { fc.err = sun.err = "bad json"; return false; }
+    JsonObject d = doc["daily"];
+    if (d.isNull()) { fc.err = sun.err = "no data"; return false; }
+    for (int i = 0; i < 3; ++i) {
+        fc.d[i].code = d["weather_code"][i] | -1;
+        fc.d[i].tmax = d["temperature_2m_max"][i] | 0.0f;
+        fc.d[i].tmin = d["temperature_2m_min"][i] | 0.0f;
+        const char* date = d["time"][i] | "";
+        if (strlen(date) >= 10) {
+            int y = (date[0]-'0')*1000 + (date[1]-'0')*100 + (date[2]-'0')*10 + (date[3]-'0');
+            int mo = (date[5]-'0')*10 + (date[6]-'0') - 1;
+            int da = (date[8]-'0')*10 + (date[9]-'0');
+            long days = tm_to_utc_epoch(y, mo, da, 0, 0, 0) / 86400;
+            fc.d[i].wday = (int)(((days % 7) + 4 + 7) % 7); // 1970-01-01 = Thursday(4)
+        }
+    }
+    fc.ok = true;
+    // sunrise/sunset are local ISO "YYYY-MM-DDTHH:MM"; take HH:MM (chars 11..15).
+    const char* sr = d["sunrise"][0] | "";
+    const char* ssr = d["sunset"][0] | "";
+    if (strlen(sr) >= 16) { memcpy(sun.rise, sr + 11, 5); sun.rise[5] = 0; }
+    if (strlen(ssr) >= 16) { memcpy(sun.set, ssr + 11, 5); sun.set[5] = 0; }
+    sun.ok = true;
+    return true;
+}
+
+bool AppClaudeMeter::_fetch_net(NetSnap& out)
+{
+    const std::uint32_t t0 = HAL::SysCtrl().millis();
+    auto resp = HAL::Http().get("http://cp.cloudflare.com/generate_204", "", 8);
+    const std::uint32_t dt = HAL::SysCtrl().millis() - t0;
+    if (resp.http_code <= 0) { out.err = "no link"; return false; }
+    out.latency_ms = (int)dt;
+    out.ok = true;
+    return true;
 }
 
 void AppClaudeMeter::_wake()
