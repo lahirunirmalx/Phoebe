@@ -1814,39 +1814,33 @@ bool AppClaudeMeter::_fetch_meeting(MeetingSnap& out)
     const std::string url = HAL::SysCfg().getConfig().icsUrl;
     if (url.empty()) { out.err = "set .ics URL"; return false; }
 
-    auto resp = HAL::Http().get(url, "", 15);
-    if (resp.http_code != 200) {
-        out.err = resp.http_code == 0 ? "net err" : "HTTP " + std::to_string(resp.http_code);
-        return false;
-    }
-
     const long now = (long)time(nullptr);
     long best = 0;
     std::string best_title, cur_summary, cur_dt;
     bool in_event = false;
-    const std::string& b = resp.body;
-    size_t pos = 0;
-    while (pos < b.size()) {
-        size_t eol = b.find('\n', pos);
-        if (eol == std::string::npos) eol = b.size();
-        std::string line = b.substr(pos, eol - pos);
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        pos = eol + 1;
 
-        if (line.rfind("BEGIN:VEVENT", 0) == 0) { in_event = true; cur_summary.clear(); cur_dt.clear(); }
-        else if (line.rfind("END:VEVENT", 0) == 0) {
+    // Stream the iCal line-by-line so a large feed never sits in RAM.
+    int code = HAL::Http().getLines(url, "", 15, [&](const char* line) {
+        if (strncmp(line, "BEGIN:VEVENT", 12) == 0) {
+            in_event = true; cur_summary.clear(); cur_dt.clear();
+        } else if (strncmp(line, "END:VEVENT", 10) == 0) {
             long st = parse_ics_dt(cur_dt);
             if (st >= now && (best == 0 || st < best)) { best = st; best_title = cur_summary; }
             in_event = false;
         } else if (in_event) {
-            if (line.rfind("SUMMARY", 0) == 0) {
-                size_t c = line.find(':');
-                if (c != std::string::npos) cur_summary = line.substr(c + 1);
-            } else if (line.rfind("DTSTART", 0) == 0) {
-                size_t c = line.find(':');
-                if (c != std::string::npos) cur_dt = line.substr(c + 1);
+            if (strncmp(line, "SUMMARY", 7) == 0) {
+                const char* c = strchr(line, ':');
+                if (c) cur_summary = c + 1;
+            } else if (strncmp(line, "DTSTART", 7) == 0) {
+                const char* c = strchr(line, ':');
+                if (c) cur_dt = c + 1;
             }
         }
+    });
+
+    if (code != 200) {
+        out.err = code == 0 ? "net err" : "HTTP " + std::to_string(code);
+        return false;
     }
     if (best == 0) { out.err = "no upcoming"; return false; }
     out.start_epoch = best;

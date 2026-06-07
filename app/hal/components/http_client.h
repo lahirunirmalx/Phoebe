@@ -5,6 +5,7 @@
  *        matching the M5Cardputer-UserDemo approach.
  */
 #pragma once
+#include <functional>
 #include <string>
 
 namespace hal_components {
@@ -29,6 +30,15 @@ public:
                          int /*timeoutSec*/ = 8)
     {
         return {0, "", "not implemented"};
+    }
+
+    // Streaming GET: invokes on_line for each line of the (de-chunked) body
+    // without holding the whole response in RAM -- for large feeds like iCal.
+    // Returns the HTTP status code (0 = transport failure).
+    virtual int getLines(const std::string& /*url*/, const std::string& /*bearerToken*/,
+                         int /*timeoutSec*/, const std::function<void(const char*)>& /*on_line*/)
+    {
+        return 0;
     }
 };
 

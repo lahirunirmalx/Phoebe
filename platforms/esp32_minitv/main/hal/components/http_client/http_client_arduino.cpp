@@ -3,10 +3,44 @@
  */
 #include "http_client_arduino.h"
 #include <HTTPClient.h>
+#include <Stream.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <cstdio>
+#include <functional>
 #include <string>
+
+// A write-only Stream that buffers bytes into lines and invokes a callback per
+// line. Used with HTTPClient::writeToStream() so a large (chunked) body is
+// de-chunked and parsed line-by-line without ever holding the whole thing.
+class LineSink : public Stream {
+public:
+    explicit LineSink(const std::function<void(const char*)>& cb) : _cb(cb) { _line.reserve(160); }
+    size_t write(uint8_t b) override
+    {
+        if (b == '\n') {
+            if (!_line.empty() && _line.back() == '\r') _line.pop_back();
+            _cb(_line.c_str());
+            _line.clear();
+        } else if (_line.size() < 1024) { // guard against a pathological long line
+            _line.push_back((char)b);
+        }
+        return 1;
+    }
+    size_t write(const uint8_t* buf, size_t n) override
+    {
+        for (size_t i = 0; i < n; ++i) write(buf[i]);
+        return n;
+    }
+    void flush() override { if (!_line.empty()) { _cb(_line.c_str()); _line.clear(); } }
+    int available() override { return 0; }
+    int read() override { return -1; }
+    int peek() override { return -1; }
+
+private:
+    const std::function<void(const char*)>& _cb;
+    std::string _line;
+};
 
 hal_components::HttpClientBase::Response HttpClientArduino::get(const std::string& url_in,
                                                                 const std::string& bearerToken,
@@ -61,32 +95,9 @@ hal_components::HttpClientBase::Response HttpClientArduino::get(const std::strin
     int code = http.GET();
     out.http_code = code;
     if (code >= 0) {
-        // Stream the body into out.body with a hard cap. getString() would load
-        // the whole response (e.g. a large iCal feed) and then we'd copy it,
-        // doubling RAM -> bad_alloc -> abort/reboot. Capping avoids the OOM.
-        static const size_t BODY_CAP = 28 * 1024;
-        const int len = http.getSize(); // -1 when chunked/unknown
-        WiFiClient* stream = http.getStreamPtr();
-        if (stream) {
-            out.body.reserve(len > 0 && (size_t)len < BODY_CAP ? (size_t)len : 2048);
-            uint8_t buf[512];
-            const unsigned long deadline = millis() + (unsigned long)timeoutSec * 1000;
-            while (out.body.size() < BODY_CAP && (http.connected() || stream->available()) &&
-                   millis() < deadline) {
-                size_t avail = stream->available();
-                if (avail) {
-                    size_t want = avail < sizeof(buf) ? avail : sizeof(buf);
-                    size_t room = BODY_CAP - out.body.size();
-                    if (want > room) want = room;
-                    int r = stream->readBytes(buf, want);
-                    if (r <= 0) break;
-                    out.body.append(reinterpret_cast<char*>(buf), (size_t)r);
-                    if (len > 0 && out.body.size() >= (size_t)len) break;
-                } else {
-                    delay(5);
-                }
-            }
-        }
+        // getString() handles chunked-transfer decoding. Use this only for the
+        // small JSON/204 endpoints; large feeds (iCal) go through getLines().
+        out.body = std::string(http.getString().c_str());
     } else {
         char buf[24];
         std::snprintf(buf, sizeof(buf), "transport %d", code);
@@ -94,4 +105,41 @@ hal_components::HttpClientBase::Response HttpClientArduino::get(const std::strin
     }
     http.end();
     return out;
+}
+
+int HttpClientArduino::getLines(const std::string& url_in, const std::string& bearerToken,
+                                int timeoutSec, const std::function<void(const char*)>& on_line)
+{
+    if (WiFi.status() != WL_CONNECTED) return 0;
+
+    std::string url = url_in;
+    const bool is_https = url.rfind("https://", 0) == 0;
+    if (!is_https && url.rfind("http://", 0) != 0) url = "http://" + url;
+
+    HTTPClient http;
+    http.setTimeout(timeoutSec * 1000);
+    bool begun;
+    WiFiClientSecure secure;
+    WiFiClient client;
+    if (is_https) {
+        secure.setInsecure();
+        secure.setHandshakeTimeout(timeoutSec);
+        begun = http.begin(secure, url.c_str());
+    } else {
+        begun = http.begin(client, url.c_str());
+    }
+    if (!begun) return 0;
+    http.setUserAgent("Mozilla/5.0 (compatible; phoebe-minitv/1.0)");
+    if (!bearerToken.empty()) http.addHeader("Authorization", ("Bearer " + bearerToken).c_str());
+
+    int code = http.GET();
+    if (code >= 0) {
+        // De-chunk via writeToStream() into a sink that emits whole lines, so
+        // the full body is never held in RAM -- only one line at a time.
+        LineSink sink(on_line);
+        http.writeToStream(&sink);
+        sink.flush();
+    }
+    http.end();
+    return code;
 }
