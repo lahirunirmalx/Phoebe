@@ -2278,9 +2278,9 @@ bool AppClaudeMeter::_fetch_uptime(UpSnap& out)
         const std::uint32_t t0 = HAL::SysCtrl().millis();
         auto resp = HAL::Http().get(urls[k], "", 12); // allow time for TLS handshake
         const std::uint32_t dt = HAL::SysCtrl().millis() - t0;
-        // Any HTTP response means the server is reachable/up (even 403/500);
-        // only a transport failure (code <= 0) counts as down.
-        out.sites[k].up = (resp.http_code > 0);
+        // Up = server responded without a server error: 2xx/3xx/4xx (incl 403).
+        // 5xx server errors and transport failures (code <= 0) count as down.
+        out.sites[k].up = (resp.http_code > 0 && resp.http_code < 500);
         out.sites[k].ms = (int)dt;
     }
     out.count = n;
