@@ -323,8 +323,8 @@ void AppClaudeMeter::onOpen()
     _last_click_ms = 0;
     HAL::Backlight().on();
 
-    _start_fetch_thread();
-    _start_weather_thread();
+    // One unified network thread fetches Claude + weather + all extras serially
+    // (see _data_loop) -- avoids concurrent TLS handshakes exhausting heap.
     _start_data_thread();
 }
 
@@ -1346,18 +1346,20 @@ void AppClaudeMeter::_build_pomodoro_view()
     _pomo_phase_label = lv_label_create(_pomo_container);
     lv_obj_set_style_text_font(_pomo_phase_label, &lv_font_montserrat_24, 0);
     lv_label_set_text(_pomo_phase_label, "WORK");
-    lv_obj_align(_pomo_phase_label, LV_ALIGN_TOP_MID, 0, 22);
+    lv_obj_align(_pomo_phase_label, LV_ALIGN_TOP_MID, 0, 14);
 
-    _pomo_arc = make_ring(_pomo_container, 190, 12);
+    // Ring sized so its top clears the phase label and its inner gap is wider
+    // than the 48px "MM:SS" text (no overlap). Centered low on the screen.
+    _pomo_arc = make_ring(_pomo_container, 162, 10);
     lv_arc_set_bg_angles(_pomo_arc, 0, 360);   // full ring that drains
     lv_arc_set_rotation(_pomo_arc, 270);
-    lv_obj_align(_pomo_arc, LV_ALIGN_CENTER, 0, 8);
+    lv_obj_align(_pomo_arc, LV_ALIGN_CENTER, 0, 22);
 
     _pomo_time_label = lv_label_create(_pomo_container);
     lv_obj_set_style_text_color(_pomo_time_label, COLOR_FG, 0);
     lv_obj_set_style_text_font(_pomo_time_label, &lv_font_montserrat_48, 0);
     lv_label_set_text(_pomo_time_label, "25:00");
-    lv_obj_align(_pomo_time_label, LV_ALIGN_CENTER, 0, 8);
+    lv_obj_align(_pomo_time_label, LV_ALIGN_CENTER, 0, 22);
 }
 
 void AppClaudeMeter::_pomodoro_on_show()
@@ -1672,25 +1674,98 @@ void AppClaudeMeter::_stop_data_thread()
 
 void AppClaudeMeter::_data_loop()
 {
+    // SINGLE network thread for the whole app: Claude + weather + all extras are
+    // fetched strictly one at a time here, so only ever one TLS connection is
+    // open. Running them on separate threads caused concurrent TLS handshakes to
+    // exhaust heap (-> "net err" + a frozen UI). Each source has its own cadence.
+    using BL = hal_components::BacklightBase;
+    std::uint32_t last_claude = 0, last_weather = 0, last_daily = 0, last_aqi = 0;
+    std::uint32_t last_cur = 0, last_net = 0, last_up = 0, last_meet = 0;
+    bool first = true;
+    bool prev_err = false, prev_limit = false;
+
     while (!_data_stop.load()) {
-        MeetingSnap m;  bool mok = _fetch_meeting(m);
-        CurrencySnap c; bool cok = _fetch_currency(c);
-        AqiSnap a;      bool aok = _fetch_aqi(a);
-        ForecastSnap fc; SunSnap sun; bool dok = _fetch_daily(fc, sun);
-        NetSnap n;      bool nok = _fetch_net(n);
-        UpSnap u;       bool uok = _fetch_uptime(u);
-        {
-            std::lock_guard<std::mutex> lock(_data_mutex);
-            if (mok) _meet = m; else { _meet.ok = false; _meet.err = m.err; }
-            if (cok) _cur = c;  else { _cur.ok = false;  _cur.err = c.err; }
-            if (aok) _aqi = a;  else { _aqi.ok = false;  _aqi.err = a.err; }
-            if (dok) { _fc = fc; _sun = sun; }
-            else { _fc.ok = false; _fc.err = fc.err; _sun.ok = false; _sun.err = sun.err; }
-            if (nok) _net = n; else { _net.ok = false; _net.err = n.err; }
-            if (uok) _up = u; else { _up.ok = false; _up.err = u.err; }
+        const std::uint32_t now = HAL::SysCtrl().millis() / 1000;
+        auto due = [&](std::uint32_t& last, std::uint32_t period) {
+            if (first || now - last >= period) { last = now; return true; }
+            return false;
+        };
+        // On a failed fetch, retry in ~20s instead of waiting the full period
+        // (important at boot, when the first pass runs before WiFi associates).
+        auto retry = [&](std::uint32_t& last, std::uint32_t period, bool ok) {
+            if (!ok && period > 25) last = now - period + 20;
+        };
+
+        // --- Claude usage (drives the meter + backlight notifications) -----
+        if (due(last_claude, 180)) {
+            Snapshot f;
+            bool ok = _fetch_once(f);
+            {
+                std::lock_guard<std::mutex> lock(_snapshot_mutex);
+                if (ok) _snapshot = f;
+                else { _snapshot.state = Fetch_Err; _snapshot.last_err = f.last_err; }
+            }
+            if (ok) {
+                const bool limit = (f.pct_five_hour >= DANGER_THRESHOLD) ||
+                                   (f.pct_seven_day >= DANGER_THRESHOLD);
+                HAL::Backlight().notify((limit && !prev_limit) ? BL::Notify_LimitReached : BL::Notify_FetchOk);
+                prev_limit = limit; prev_err = false;
+            } else {
+                if (!prev_err) HAL::Backlight().notify(BL::Notify_FetchErr);
+                prev_err = true; prev_limit = false;
+            }
+            retry(last_claude, 180, ok);
         }
-        // refresh every 10 minutes
-        for (int i = 0; i < 600 * 4 && !_data_stop.load(); ++i) {
+
+        if (due(last_weather, 600)) {
+            WeatherSnapshot w; bool ok = _weather_fetch_once(w);
+            { std::lock_guard<std::mutex> lock(_weather_mutex);
+              if (ok) _weather = w; else { _weather.ok = false; _weather.err = w.err; } }
+            retry(last_weather, 600, ok);
+        }
+        if (due(last_daily, 600)) {
+            ForecastSnap fc; SunSnap sun; bool ok = _fetch_daily(fc, sun);
+            { std::lock_guard<std::mutex> lock(_data_mutex);
+              if (ok) { _fc = fc; _sun = sun; }
+              else { _fc.ok = false; _fc.err = fc.err; _sun.ok = false; _sun.err = sun.err; } }
+            mclog::tagInfo(getAppInfo().name, "daily {}", ok ? "ok" : fc.err);
+            retry(last_daily, 600, ok);
+        }
+        if (due(last_aqi, 900)) {
+            AqiSnap a; bool ok = _fetch_aqi(a);
+            { std::lock_guard<std::mutex> lock(_data_mutex);
+              if (ok) _aqi = a; else { _aqi.ok = false; _aqi.err = a.err; } }
+            mclog::tagInfo(getAppInfo().name, "aqi {}", ok ? "ok" : a.err);
+            retry(last_aqi, 900, ok);
+        }
+        if (due(last_cur, 1800)) {
+            CurrencySnap c; bool ok = _fetch_currency(c);
+            { std::lock_guard<std::mutex> lock(_data_mutex);
+              if (ok) _cur = c; else { _cur.ok = false; _cur.err = c.err; } }
+            mclog::tagInfo(getAppInfo().name, "currency {}", ok ? "ok" : c.err);
+            retry(last_cur, 1800, ok);
+        }
+        if (due(last_meet, 300)) {
+            MeetingSnap m; bool ok = _fetch_meeting(m);
+            { std::lock_guard<std::mutex> lock(_data_mutex);
+              if (ok) _meet = m; else { _meet.ok = false; _meet.err = m.err; } }
+            retry(last_meet, 300, ok);
+        }
+        if (due(last_net, 90)) {
+            NetSnap n; bool ok = _fetch_net(n);
+            { std::lock_guard<std::mutex> lock(_data_mutex);
+              if (ok) _net = n; else { _net.ok = false; _net.err = n.err; } }
+            retry(last_net, 90, ok);
+        }
+        if (due(last_up, 120)) {
+            UpSnap u; bool ok = _fetch_uptime(u);
+            { std::lock_guard<std::mutex> lock(_data_mutex);
+              if (ok) _up = u; else { _up.ok = false; _up.err = u.err; } }
+            retry(last_up, 120, ok);
+        }
+
+        first = false;
+        for (int i = 0; i < 4 && !_data_stop.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
         }
     }
