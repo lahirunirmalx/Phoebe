@@ -1,228 +1,141 @@
-# Phoebe
+# Phoebe — Claude Meter & apps for the Freenove ESP32 Mini TV
 
-Going open source — feel free to compile and play around if you're interested.
+A multi-app firmware for the **Freenove "ESP32 Mini TV" (FNK0112)** — a little
+desktop cube with a 240×240 IPS screen and a single capacitive touch button.
+It runs a Claude Code usage meter, watch faces, weather, and a carousel of small
+apps you flip through with the touch pad.
 
-- Demo video: [bilibili.com/video/BV1qCBBYkEXS](https://www.bilibili.com/video/BV1qCBBYkEXS)
-- Hardware: [oshwhub.com/eedadada/phoebe-4-real](https://oshwhub.com/eedadada/phoebe-4-real)
-- Sister project (data source for `AppClaudeMeter`):
-  [github.com/lahirunirmalx/claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter)
-  — tiny local HTTP server + Prometheus exporter for Claude Code's
-  `/usage` data. Set its base URL + bearer in `system_config.json`; see
-  **Configuration**.
-
----
-
-- New Mooncake project framework
-- JS runtime with UI and HAL API bindings — usable for watch faces or apps
-- A more ergonomic LVGL C++ binding, with transition animation support
-- `AppClaudeMeter` — Claude API usage meter (5h / 7d bars) with an
-  integrated analog clock face. Click toggles between clock and meter
-  views. Polls `<base>/usage` every 5 minutes via the HAL HTTP client
-  (libcurl on desktop, Arduino HTTPClient on ESP32). See **Configuration**
-  below.
-
-## Desktop build
-
-Fetch dependencies (submodules):
-
-```bash
-git submodule update --init --recursive
-```
-
-If you cloned without `--recurse-submodules`, the command above pulls in everything under `dependencies/`.
-
-Install the desktop build dependencies (Ubuntu/Debian):
-
-```bash
-sudo apt install libsdl2-dev libcurl4-openssl-dev cmake build-essential
-```
-
-Build:
-
-```bash
-mkdir build && cd build
-cmake .. && make
-```
-
-Run from the repo root (so the runtime config files are picked up from
-the working directory):
-
-```bash
-./build/desktop/app_desktop_build
-```
-
-Click anywhere in the LVGL window to toggle between the clock view and
-the Claude meter view.
-
-## Configuration
-
-A single runtime config — `system_config.json` — sits next to the
-binary's working directory. It's **gitignored** because it holds the
-Claude bearer token and the WiFi password; the committed
-`system_config.example.json` shows the schema.
-
-```bash
-cp system_config.example.json system_config.json
-$EDITOR system_config.json
-```
-
-Fields:
-
-| Key              | Purpose                                                                  |
-| ---------------- | ------------------------------------------------------------------------ |
-| `mute`           | global mute                                                              |
-| `hapticFeedback` | enable haptic motor (ESP32)                                              |
-| `watchFace`      | `"analog"` / `"digital"` / `"animated"` / `"seg7"` / `"vfd"` (see below) |
-| `widgetA`/`B`    | watch-face widget slots                                                  |
-| `claudeBase`     | usage server base URL, e.g. `http://127.0.0.1:7878`                      |
-| `claudeBearer`   | API token sent as `Authorization: Bearer <token>`                        |
-| `wifiSsid`       | WiFi SSID (desktop sim records it, ESP32 ignores it)                     |
-| `wifiPassword`   | WiFi password (same)                                                     |
-
-Any of the four secret fields can also be seeded via env vars on first
-run; the desktop impl writes them into `system_config.json` for you.
-Env vars take precedence over what's already on disk:
-
-```bash
-PHOEBE_CLAUDE_BASE=http://127.0.0.1:7878 \
-PHOEBE_CLAUDE_BEARER=sk-... \
-PHOEBE_WIFI_SSID=mywifi \
-PHOEBE_WIFI_PASSWORD=secret \
-  ./build/desktop/app_desktop_build
-```
-
-The HTTP fetcher hits `<claudeBase>/usage` with `Authorization: Bearer
-<claudeBearer>` and parses `five_hour.utilization` /
-`seven_day.utilization` out of the JSON response. Bar colors:
-green (<70%), orange (70–90%), red (≥90%).
-
-The expected endpoint shape is provided by
-[claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter)
-(run it locally and point `claudeBase` at e.g. `http://127.0.0.1:7878`).
-Any service returning the same JSON shape will work just as well.
-
-### Watch faces
-
-`AppClaudeMeter`'s clock view supports three faces, picked at startup
-from the `watchFace` field. All three share the 5H usage bar at the top
-and refresh once per second:
-
-- **`"analog"`** *(default if empty or unknown)*  — Analog clock canvas
-  with hour/minute/second hands; digital time and date pinned to the
-  bottom.
-- **`"digital"`** — Large `HH:MM` centred, smaller `:SS` below in accent
-  colour, date at the bottom.
-- **`"animated"`** — Large `HH:MM` centred behind a continuously-rotating
-  accent arc (driven by `lv_anim_t`, independent of wall time); date at
-  the bottom.
-- **`"seg7"`** — Classic 7-segment LCD display: four red digits + a
-  blinking colon drawn on an LVGL canvas. Lit segments are bright red
-  (`#FF3030`), unlit segments stay visible as a dim red (`#300505`) so
-  you can read the "off" segments like on a real LCD.
-- **`"vfd"`** — VFD-style 5×7 dot-matrix on a dark teal background.
-  Each character is rendered as a grid of phosphor-coloured circular
-  dots (`#66FFCC`), unlit positions drawn as dim dots (`#0E1818`).
-  Font is a small inline glyph table for digits `0–9` and `:`.
-
-Switch faces by editing `watchFace` in `system_config.json` and
-restarting the binary.
-
-### Platform notes
-
-- **Desktop.** WiFi is a simulation — the host OS already has WiFi, so
-  `connect()` just records the credentials. All fields, including
-  `wifiSsid` / `wifiPassword`, persist in `system_config.json`. System
-  time comes from the host clock.
-- **ESP32.** WiFi credentials live in NVS namespace `wifi`
-  (`WifiManagerEsp32` is the source of truth there). The `wifiSsid` /
-  `wifiPassword` fields in `system_config.json` are unused on ESP32.
-  `claudeBase` / `claudeBearer` still come from `system_config`. The
-  chip has no RTC, so time is fetched from `pool.ntp.org` via SNTP as
-  soon as the link is up — `configTime()` is called from
-  `WifiManagerEsp32::connect()`.
+> **Built on [Phoebe](https://oshwhub.com/eedadada/phoebe-4-real) by
+> Forairaaaaa (eedadada).** Phoebe is an open-source LVGL + Mooncake watch
+> firmware with a clean app/HAL framework, a JS runtime, and a C++ LVGL binding.
+> **This repository reuses that project** and adds a new `esp32_minitv` hardware
+> platform plus the apps documented below. Full credit for the underlying
+> framework and original hardware goes to the original author —
+> demo: [bilibili.com/video/BV1qCBBYkEXS](https://www.bilibili.com/video/BV1qCBBYkEXS).
+>
+> Claude usage data comes from the sister project
+> [claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter)
+> — a tiny local HTTP server that exposes Claude Code's `/usage` data.
 
 ---
 
-## Freenove ESP32 Mini TV build (`esp32_minitv`)
-
-A full hardware port of Phoebe to the **Freenove "ESP32 Mini TV" (FNK0112)** —
-a little desktop cube with a 240×240 IPS screen and a single capacitive touch
-button. Beyond the watch + Claude meter, it ships a whole carousel of apps you
-cycle through with the touch pad.
-
-### Hardware needed
+## Hardware needed
 
 | Item | Notes |
 | ---- | ----- |
 | **Freenove ESP32 Mini TV (FNK0112)** | The cube — classic ESP32, **240×240 ST7789 SPI** display, capacitive touch pad. **[Buy on AliExpress](https://www.aliexpress.com/item/1005012027955795.html)** |
-| USB‑C cable | Power + flashing (the board's CH340 shows up as `/dev/ttyUSB0`). |
-| 2.4 GHz WiFi | For the Claude meter, weather, currency, etc. (configured via the on‑device captive portal). |
+| USB‑C cable | Power + flashing (the board's CH340 enumerates as `/dev/ttyUSB0`). |
+| 2.4 GHz WiFi | For the Claude meter, weather, currency, uptime, etc. |
 
-That's it — no soldering or extra parts; the display and touch are built into
-the board. Confirmed pinout (baked into the firmware): SCLK 14, MOSI 13, DC 2,
-CS 15, backlight 19 *(active‑low)*, panel‑VDD enable 21 *(active‑low)*, touch
-pad **T9 / GPIO32**.
+No soldering or extra parts — the display and touch are built into the board.
+Confirmed pinout (baked into the firmware): SCLK 14, MOSI 13, DC 2, CS 15,
+backlight 19 *(active‑low)*, panel‑VDD enable 21 *(active‑low)*, touch pad
+**T9 / GPIO32**.
 
-### Build & flash
+## Build & flash
+
+Toolchain: **ESP‑IDF v4.4** (Arduino is pulled in as a managed component).
 
 ```bash
+git submodule update --init --recursive   # dependencies/
+
 cd platforms/esp32_minitv
 ./flash.sh                 # build + flash /dev/ttyUSB0 + serial monitor
 ./flash.sh --no-monitor    # build + flash only
+SERIAL_PORT=/dev/ttyUSB1 ./flash.sh
 ```
 
-Needs ESP‑IDF **v4.4** (Arduino is pulled in as a managed component). `flash.sh`
-sources `export.sh` and re‑adds the classic `xtensa-esp32-elf` toolchain to PATH
-if it's missing. There is also a standalone `platforms/tft_touch_test/` harness
-used to bring up the display + touch.
+`flash.sh` sources `export.sh` and re‑adds the classic `xtensa-esp32-elf`
+toolchain to PATH if it's missing. There is also a standalone
+`platforms/tft_touch_test/` harness used to bring up the display + touch.
 
-### Using it
+## Using it
 
-The screen is **dark by default** (power saving). Interaction is the single
-touch pad:
+The screen is **dark by default** (power saving). Everything is driven by the
+one touch pad:
 
 - **Tap** — wake / cycle to the next app.
 - **Double‑tap** — pin the current app (no sleep, stops cycling) until you tap.
 - **Long‑press (≥3 s)** — open the WiFi/settings **captive portal**.
-- **5 min idle** — display turns off; a notification (or tap) wakes it.
+- **5 min idle** — display turns off; a tap or a notification wakes it.
 
-Apps in the cycle: **clock** (watch faces) → **Claude meter** (5h/7d rings) →
-**weather** → **pomodoro** → **world clock** → **next meeting** → **currency**
-(FX→LKR) → **AQI** → **3‑day forecast** → **sun & moon** → **network ping** →
-**uptime** → **pet** → **screensaver**. The backlight also **pulses** on Claude
-fetch / error / limit‑reached as an ambient notification.
+Apps in the cycle:
 
-### First‑boot setup (captive portal)
+**clock** (watch faces) → **Claude meter** (5h/7d rings) → **weather** →
+**pomodoro** → **world clock** → **next meeting** → **currency** (FX→LKR) →
+**AQI** → **3‑day forecast** → **sun & moon** → **network ping** → **uptime** →
+**pet** → **screensaver**.
 
-NVS is empty on a fresh board, so long‑press to open the portal: join WiFi
-**`Phoebe-Setup`** (password `12345678`), browse to `http://192.168.4.1`, and
-set WiFi, timezone, watch face, widgets, **Claude base/bearer**, a **Sri Lanka
-weather city**, an optional **calendar `.ics` URL** (next‑meeting), and up to
-**5 uptime URLs**. Save reboots into the configured device.
+The backlight also **pulses** on a Claude fetch / error / limit‑reached as an
+ambient notification while the screen is otherwise dark.
 
-All data sources are free and key‑less except your own endpoints:
-[Open‑Meteo](https://open-meteo.com) (weather / forecast / sun / AQI),
-`open.er-api.com` (currency), your secret iCal feed (meeting), and
-[claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter)
-(Claude meter).
+## First‑boot setup (captive portal)
 
----
+A fresh board has no settings stored, so **long‑press** the pad to open the
+portal:
 
-## Ember's Trace
+1. Join WiFi **`Phoebe-Setup`** (password `12345678`).
+2. Browse to `http://192.168.4.1`.
+3. Set: WiFi, timezone, watch face, widgets, **Claude base + bearer**, a
+   **Sri Lanka weather city**, an optional **calendar `.ics` URL** (next
+   meeting), and up to **5 uptime URLs**.
+4. Save — the device reboots configured.
 
-*A fire that once burned fiercely in the depths of the soul, now reduced to a faint flicker — whispering of vows left unfulfilled.*
+Settings persist in NVS across re‑flashes. All data sources are free and
+key‑less apart from your own endpoints:
 
-- **Type:** Unfinished weapon
-- **Attack:** 0 → ∞ (depends on the wielder's resolve)
-- **Durability:** 3/99 (slowly crumbling under weariness)
-- **Weight:** 5.5
-- Stat requirements:
-  - Strength: 12
-  - Faith: 8
-  - Endurance: no upper limit
+| App | Source |
+| --- | ------ |
+| Weather / forecast / sun & moon / AQI | [Open‑Meteo](https://open-meteo.com) (no key) |
+| Currency | `open.er-api.com` (no key) |
+| Next meeting | your secret iCal `.ics` URL (streamed line‑by‑line) |
+| Claude meter | [claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter) (`<base>/usage`, bearer token) |
+| Network / uptime | HTTP status/latency to public endpoints / your URLs |
 
-### Skill: Will of the Forsaken
+The Claude meter colours: green (<70%), orange (70–90%), red (≥90%).
 
-Consume all remaining conviction and patience to reforge this unfinished blade into a weapon of one's own — its form and stats shaped by the wielder. *(Note: the path is long and lonely; failure means returning to the void.)*
+## Watch faces
 
-> *"It never took shape, yet that faint light still waits for the fearless to temper it."*
+The clock app picks a face from the `watchFace` setting. Faces:
+
+- **`analog`** *(default)* — full‑screen analog clock with hour/minute/second
+  hands and a dial ring; date at the bottom.
+- **`digital`** — large `HH:MM` with `:SS` below and the date at the bottom.
+- **`animated`** — large `HH:MM` behind a continuously rotating accent arc.
+- **`seg7`** — 7‑segment LCD look: four red digits + a blinking colon; unlit
+  segments stay visible as dim red, like a real LCD.
+- **`vfd`** — VFD‑style 5×7 dot‑matrix in phosphor green on dark teal.
+
+## Architecture notes
+
+- **Dual‑core:** the UI (LVGL/Mooncake/touch) runs on APP_CPU; all networking
+  (Claude + weather + the extras) runs on PRO_CPU via a single serialized fetch
+  thread, so only one TLS connection is open at a time.
+- **Memory:** mbedTLS dynamic buffers are enabled, large feeds are streamed
+  (never buffered whole), and uptime/ping use a status‑only request that never
+  downloads the page body — all to keep TLS off the heap‑exhaustion cliff.
+- **Single touch:** the GPIO32 pad drives an LVGL pointer indev plus tap /
+  double‑tap / long‑press gesture detection.
+
+## Desktop simulator (development)
+
+The shared app layer also builds as a desktop simulator (SDL + libcurl) for
+working on UI without hardware:
+
+```bash
+sudo apt install libsdl2-dev libcurl4-openssl-dev cmake build-essential
+mkdir build && cd build && cmake .. && make
+./desktop/app_desktop_build          # run from the repo root
+```
+
+On desktop, settings live in a gitignored `system_config.json` (copy
+`system_config.example.json`); WiFi is simulated and time comes from the host.
+
+## Credits
+
+- **Original Phoebe firmware & framework:** Forairaaaaa (eedadada) —
+  [hardware](https://oshwhub.com/eedadada/phoebe-4-real) ·
+  [demo](https://www.bilibili.com/video/BV1qCBBYkEXS). This project would not
+  exist without it.
+- **Claude usage data:**
+  [claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter).
