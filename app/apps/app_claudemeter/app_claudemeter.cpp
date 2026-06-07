@@ -1551,17 +1551,42 @@ void AppClaudeMeter::_update_meeting()
         std::lock_guard<std::mutex> lock(_data_mutex);
         m = _meet;
     }
+    // No event found -> "Free"; a real error/hint -> show it.
     if (!m.ok) {
-        lv_label_set_text(_meet_when_lbl, "--");
-        lv_label_set_text(_meet_title_lbl, m.err.empty() ? "fetching..." : m.err.c_str());
+        if (m.err == "no upcoming" || m.err.empty()) {
+            lv_label_set_text(_meet_when_lbl, "Free");
+            lv_obj_set_style_text_color(_meet_when_lbl, COLOR_OK, 0);
+            lv_label_set_text(_meet_title_lbl, "");
+        } else {
+            lv_label_set_text(_meet_when_lbl, "--");
+            lv_obj_set_style_text_color(_meet_when_lbl, COLOR_FG, 0);
+            lv_label_set_text(_meet_title_lbl, m.err.c_str());
+        }
         return;
     }
-    const long now = (long)time(nullptr);
-    const long mins = (m.start_epoch - now) / 60;
+
+    long secs = m.start_epoch - (long)time(nullptr);
+    if (secs < 0) secs = 0;
+
+    // Nothing within 2 hours -> show "Free".
+    if (secs > 2 * 3600) {
+        lv_label_set_text(_meet_when_lbl, "Free");
+        lv_obj_set_style_text_color(_meet_when_lbl, COLOR_OK, 0);
+        lv_label_set_text(_meet_title_lbl, "");
+        return;
+    }
+
     char when[24];
-    if (mins < 0) std::snprintf(when, sizeof(when), "now");
-    else if (mins < 60) std::snprintf(when, sizeof(when), "%ldm", mins);
-    else std::snprintf(when, sizeof(when), "%ldh %ldm", mins / 60, mins % 60);
+    if (secs <= 15 * 60) {
+        // Imminent: live MM:SS countdown, highlighted.
+        std::snprintf(when, sizeof(when), "%02ld:%02ld", secs / 60, secs % 60);
+        lv_obj_set_style_text_color(_meet_when_lbl, COLOR_ACCENT, 0);
+    } else {
+        const long mins = secs / 60;
+        if (mins < 60) std::snprintf(when, sizeof(when), "in %ldm", mins);
+        else std::snprintf(when, sizeof(when), "in %ldh %ldm", mins / 60, mins % 60);
+        lv_obj_set_style_text_color(_meet_when_lbl, COLOR_FG, 0);
+    }
     lv_label_set_text(_meet_when_lbl, when);
     lv_label_set_text(_meet_title_lbl, m.title.c_str());
 }
@@ -2150,7 +2175,7 @@ bool AppClaudeMeter::_fetch_daily(ForecastSnap& fc, SunSnap& sun)
 bool AppClaudeMeter::_fetch_net(NetSnap& out)
 {
     const std::uint32_t t0 = HAL::SysCtrl().millis();
-    auto resp = HAL::Http().get("http://cp.cloudflare.com/generate_204", "", 8);
+    auto resp = HAL::Http().get("http://www.gstatic.com/generate_204", "", 8);
     const std::uint32_t dt = HAL::SysCtrl().millis() - t0;
     if (resp.http_code <= 0) { out.err = "no link"; return false; }
     out.latency_ms = (int)dt;
@@ -2177,11 +2202,21 @@ void AppClaudeMeter::_build_uptime_view()
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
     for (int i = 0; i < 5; ++i) {
+        const int y = 44 + i * 34;
+        _up_dots[i] = lv_obj_create(_up_container);
+        lv_obj_remove_style_all(_up_dots[i]);
+        lv_obj_set_size(_up_dots[i], 16, 16);
+        lv_obj_set_style_radius(_up_dots[i], 8, 0);
+        lv_obj_set_style_bg_color(_up_dots[i], COLOR_BAR_BG, 0);
+        lv_obj_set_style_bg_opa(_up_dots[i], LV_OPA_COVER, 0);
+        lv_obj_align(_up_dots[i], LV_ALIGN_TOP_LEFT, 14, y);
+        lv_obj_add_flag(_up_dots[i], LV_OBJ_FLAG_HIDDEN);
+
         _up_rows[i] = lv_label_create(_up_container);
-        lv_obj_set_style_text_color(_up_rows[i], COLOR_LABEL_DIM, 0);
+        lv_obj_set_style_text_color(_up_rows[i], COLOR_FG, 0);
         lv_obj_set_style_text_font(_up_rows[i], &lv_font_montserrat_14, 0);
         lv_label_set_text(_up_rows[i], "");
-        lv_obj_align(_up_rows[i], LV_ALIGN_TOP_LEFT, 10, 40 + i * 36);
+        lv_obj_align(_up_rows[i], LV_ALIGN_TOP_LEFT, 40, y);
     }
 }
 
@@ -2195,16 +2230,22 @@ void AppClaudeMeter::_update_uptime()
     }
     if (!u.ok) {
         lv_label_set_text(_up_rows[0], u.err.empty() ? "..." : u.err.c_str());
-        for (int i = 1; i < 5; ++i) lv_label_set_text(_up_rows[i], "");
+        lv_obj_add_flag(_up_dots[0], LV_OBJ_FLAG_HIDDEN);
+        for (int i = 1; i < 5; ++i) { lv_label_set_text(_up_rows[i], ""); lv_obj_add_flag(_up_dots[i], LV_OBJ_FLAG_HIDDEN); }
         return;
     }
     for (int i = 0; i < 5; ++i) {
-        if (i >= u.count) { lv_label_set_text(_up_rows[i], ""); continue; }
+        if (i >= u.count) {
+            lv_label_set_text(_up_rows[i], "");
+            lv_obj_add_flag(_up_dots[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_clear_flag(_up_dots[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_bg_color(_up_dots[i], u.sites[i].up ? COLOR_OK : COLOR_DANGER, 0);
         char b[48];
         if (u.sites[i].up) std::snprintf(b, sizeof(b), "%-15s %dms", u.sites[i].host, u.sites[i].ms);
-        else std::snprintf(b, sizeof(b), "%-15s DOWN", u.sites[i].host);
+        else std::snprintf(b, sizeof(b), "%s", u.sites[i].host);
         lv_label_set_text(_up_rows[i], b);
-        lv_obj_set_style_text_color(_up_rows[i], u.sites[i].up ? COLOR_OK : COLOR_DANGER, 0);
     }
 }
 
@@ -2235,7 +2276,7 @@ bool AppClaudeMeter::_fetch_uptime(UpSnap& out)
         std::snprintf(out.sites[k].host, sizeof(out.sites[k].host), "%s", host.c_str());
 
         const std::uint32_t t0 = HAL::SysCtrl().millis();
-        auto resp = HAL::Http().get(urls[k], "", 6);
+        auto resp = HAL::Http().get(urls[k], "", 12); // allow time for TLS handshake
         const std::uint32_t dt = HAL::SysCtrl().millis() - t0;
         out.sites[k].up = (resp.http_code >= 200 && resp.http_code < 400);
         out.sites[k].ms = (int)dt;

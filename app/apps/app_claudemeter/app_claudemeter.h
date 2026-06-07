@@ -209,6 +209,7 @@ private:
     lv_obj_t* _stars[kStarN] = {};
     lv_obj_t* _up_container = nullptr;
     lv_obj_t* _up_rows[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+    lv_obj_t* _up_dots[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
     struct UpSnap {
         struct Site { char host[22] = ""; bool up = false; int ms = 0; } sites[5];
         int count = 0;
