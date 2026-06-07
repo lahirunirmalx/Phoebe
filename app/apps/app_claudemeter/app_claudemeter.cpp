@@ -409,10 +409,15 @@ void AppClaudeMeter::_build_ui()
     _build_clock_view();
     _build_meter_view();
     _build_weather_view();
+    _build_pomodoro_view();
+    _build_world_view();
 
     _register_screen("clock", _clock_container, [this] { _update_clock(); });
     _register_screen("meter", _meter_container, [this] { _update_meter(); });
     _register_screen("weather", _weather_container, [this] { _update_weather(); });
+    _register_screen("pomodoro", _pomo_container, [this] { _update_pomodoro(); },
+                     [this] { _pomodoro_on_show(); });
+    _register_screen("world", _world_container, [this] { _update_world(); });
 }
 
 void AppClaudeMeter::_build_boot_screen()
@@ -462,9 +467,10 @@ bool AppClaudeMeter::_time_is_synced() const
 }
 
 void AppClaudeMeter::_register_screen(const char* name, lv_obj_t* container,
-                                      std::function<void()> update)
+                                      std::function<void()> update,
+                                      std::function<void()> on_show)
 {
-    _screens.push_back({name, container, std::move(update)});
+    _screens.push_back({name, container, std::move(update), std::move(on_show)});
 }
 
 void AppClaudeMeter::_show_screen(int idx)
@@ -481,6 +487,7 @@ void AppClaudeMeter::_show_screen(int idx)
             lv_obj_add_flag(_screens[i].container, LV_OBJ_FLAG_HIDDEN);
         }
     }
+    if (_screens[idx].on_show) _screens[idx].on_show();
     if (_screens[idx].update) _screens[idx].update();
     mclog::tagInfo(getAppInfo().name, "screen: {}", _screens[idx].name);
 }
@@ -1293,6 +1300,126 @@ bool AppClaudeMeter::_weather_fetch_once(WeatherSnapshot& out)
     out.ok = (out.temp_c > -100.0f);
     if (!out.ok) out.err = "no fields";
     return out.ok;
+}
+
+/* ------------------------------ Pomodoro ------------------------------- */
+
+namespace {
+constexpr int POMO_WORK_SEC = 25 * 60;
+constexpr int POMO_BREAK_SEC = 5 * 60;
+}
+
+void AppClaudeMeter::_build_pomodoro_view()
+{
+    _pomo_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_pomo_container);
+    lv_obj_set_size(_pomo_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_pomo_container, 0, 0);
+    lv_obj_set_style_bg_color(_pomo_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_pomo_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_pomo_container, LV_OBJ_FLAG_CLICKABLE);
+
+    _pomo_phase_label = lv_label_create(_pomo_container);
+    lv_obj_set_style_text_font(_pomo_phase_label, &lv_font_montserrat_24, 0);
+    lv_label_set_text(_pomo_phase_label, "WORK");
+    lv_obj_align(_pomo_phase_label, LV_ALIGN_TOP_MID, 0, 22);
+
+    _pomo_arc = make_ring(_pomo_container, 190, 12);
+    lv_arc_set_bg_angles(_pomo_arc, 0, 360);   // full ring that drains
+    lv_arc_set_rotation(_pomo_arc, 270);
+    lv_obj_align(_pomo_arc, LV_ALIGN_CENTER, 0, 8);
+
+    _pomo_time_label = lv_label_create(_pomo_container);
+    lv_obj_set_style_text_color(_pomo_time_label, COLOR_FG, 0);
+    lv_obj_set_style_text_font(_pomo_time_label, &lv_font_montserrat_48, 0);
+    lv_label_set_text(_pomo_time_label, "25:00");
+    lv_obj_align(_pomo_time_label, LV_ALIGN_CENTER, 0, 8);
+}
+
+void AppClaudeMeter::_pomodoro_on_show()
+{
+    // Restart a fresh work session whenever the user lands on this screen.
+    _pomo_work = true;
+    _pomo_phase_start_ms = HAL::SysCtrl().millis();
+}
+
+void AppClaudeMeter::_update_pomodoro()
+{
+    if (!_pomo_time_label) return;
+
+    const std::uint32_t now = HAL::SysCtrl().millis();
+    const int phase_len = _pomo_work ? POMO_WORK_SEC : POMO_BREAK_SEC;
+    int elapsed = (int)((now - _pomo_phase_start_ms) / 1000);
+
+    if (elapsed >= phase_len) {
+        // Phase finished -> swap work/break and pulse the backlight.
+        _pomo_work = !_pomo_work;
+        _pomo_phase_start_ms = now;
+        elapsed = 0;
+        HAL::Backlight().notify(hal_components::BacklightBase::Notify_LimitReached);
+    }
+
+    const int remaining = phase_len - elapsed;
+    const lv_color_t c = _pomo_work ? COLOR_7D : COLOR_OK; // amber work / green break
+    lv_label_set_text(_pomo_phase_label, _pomo_work ? "WORK" : "BREAK");
+    lv_obj_set_style_text_color(_pomo_phase_label, c, 0);
+
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d", remaining / 60, remaining % 60);
+    lv_label_set_text(_pomo_time_label, buf);
+
+    lv_arc_set_value(_pomo_arc, remaining * 100 / phase_len);
+    lv_obj_set_style_arc_color(_pomo_arc, c, LV_PART_INDICATOR);
+}
+
+/* ----------------------------- World clock ----------------------------- */
+
+void AppClaudeMeter::_build_world_view()
+{
+    _world_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_world_container);
+    lv_obj_set_size(_world_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_world_container, 0, 0);
+    lv_obj_set_style_bg_color(_world_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_world_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_world_container, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* title = lv_label_create(_world_container);
+    lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_label_set_text(title, "WORLD CLOCK");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+
+    for (int i = 0; i < 4; ++i) {
+        _world_rows[i] = lv_label_create(_world_container);
+        lv_obj_set_style_text_color(_world_rows[i], COLOR_FG, 0);
+        lv_obj_set_style_text_font(_world_rows[i], &lv_font_montserrat_24, 0);
+        lv_label_set_text(_world_rows[i], "");
+        lv_obj_align(_world_rows[i], LV_ALIGN_TOP_MID, 0, 50 + i * 44);
+    }
+}
+
+void AppClaudeMeter::_update_world()
+{
+    if (!_world_rows[0]) return;
+
+    struct Zone { const char* name; int offsetMin; };
+    const Zone zones[4] = {
+        {"Local", HAL::SysCfg().getConfig().tzOffsetMin},
+        {"London", 0},
+        {"New York", -300},
+        {"Tokyo", 540},
+    };
+
+    const time_t utc = time(nullptr);
+    for (int i = 0; i < 4; ++i) {
+        time_t t = utc + zones[i].offsetMin * 60;
+        struct tm tmv;
+        gmtime_r(&t, &tmv);
+        char buf[40];
+        std::snprintf(buf, sizeof(buf), "%-9s %02d:%02d", zones[i].name, tmv.tm_hour, tmv.tm_min);
+        lv_label_set_text(_world_rows[i], buf);
+    }
 }
 
 void AppClaudeMeter::_wake()

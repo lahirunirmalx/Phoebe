@@ -41,6 +41,7 @@ private:
         std::string name;
         lv_obj_t* container = nullptr;
         std::function<void()> update;
+        std::function<void()> on_show;   // optional: called when this screen becomes active
     };
 
     enum FetchState { Fetch_Idle = 0, Fetch_OK, Fetch_Err };
@@ -150,6 +151,18 @@ private:
     } _weather;
     int _wx_last_code = -2;  // for cheap icon-state diffing
 
+    // Pomodoro
+    lv_obj_t* _pomo_container = nullptr;
+    lv_obj_t* _pomo_arc = nullptr;
+    lv_obj_t* _pomo_time_label = nullptr;
+    lv_obj_t* _pomo_phase_label = nullptr;
+    std::uint32_t _pomo_phase_start_ms = 0;
+    bool _pomo_work = true;   // true = work (25m), false = break (5m)
+
+    // World clock
+    lv_obj_t* _world_container = nullptr;
+    lv_obj_t* _world_rows[4] = {nullptr, nullptr, nullptr, nullptr};
+
     void _build_ui();
     void _build_clock_view();
     void _build_clock_5h_bar();
@@ -161,7 +174,8 @@ private:
     void _build_meter_view();
     void _build_boot_screen();
     bool _time_is_synced() const;
-    void _register_screen(const char* name, lv_obj_t* container, std::function<void()> update);
+    void _register_screen(const char* name, lv_obj_t* container, std::function<void()> update,
+                          std::function<void()> on_show = {});
     void _show_screen(int idx);
     void _handle_tap();   // single = cycle screens, double = pin current, asleep = wake
     void _wake();         // turn backlight on, show first screen, unpin
@@ -173,6 +187,11 @@ private:
     void _update_clock_seg7(const struct tm& tm_info);
     void _update_clock_vfd(const struct tm& tm_info);
     void _update_meter();
+    void _build_pomodoro_view();
+    void _update_pomodoro();
+    void _pomodoro_on_show();
+    void _build_world_view();
+    void _update_world();
     void _build_weather_view();
     void _update_weather();
     void _set_weather_icon(int code);     // show/hide icon parts for a WMO code
