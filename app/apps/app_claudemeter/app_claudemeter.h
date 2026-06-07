@@ -202,6 +202,20 @@ private:
     lv_obj_t* _net_value_lbl = nullptr;
     lv_obj_t* _net_sub_lbl = nullptr;
 
+    // Pet / Screensaver / Uptime
+    lv_obj_t* _pet_container = nullptr;
+    lv_obj_t* _saver_container = nullptr;
+    static constexpr int kStarN = 18;
+    lv_obj_t* _stars[kStarN] = {};
+    lv_obj_t* _up_container = nullptr;
+    lv_obj_t* _up_rows[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+    struct UpSnap {
+        struct Site { char host[22] = ""; bool up = false; int ms = 0; } sites[5];
+        int count = 0;
+        bool ok = false;
+        std::string err;
+    } _up;
+
     void _build_ui();
     void _build_clock_view();
     void _build_clock_5h_bar();
@@ -245,6 +259,11 @@ private:
     bool _fetch_aqi(AqiSnap& out);
     bool _fetch_daily(ForecastSnap& fc, SunSnap& sun);   // one Open-Meteo call feeds #6 + #7
     bool _fetch_net(NetSnap& out);
+    bool _fetch_uptime(UpSnap& out);
+    void _build_pet_view();
+    void _build_saver_view();
+    void _build_uptime_view();
+    void _update_uptime();
     void _build_forecast_view();
     void _update_forecast();
     void _build_sun_view();

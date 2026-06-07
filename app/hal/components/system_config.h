@@ -37,6 +37,9 @@ public:
         // Secret iCal (.ics) URL for the "next meeting" screen (optional).
         std::string icsUrl;
 
+        // Up to 5 URLs (whitespace/comma separated) for the uptime monitor.
+        std::string uptimeUrls;
+
         // Claude usage endpoint (consumed by AppClaudeMeter).
         // base: e.g. "http://127.0.0.1:7878"
         // bearer: opaque API token sent as "Authorization: Bearer <token>"

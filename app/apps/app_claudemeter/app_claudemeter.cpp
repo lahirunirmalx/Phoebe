@@ -423,6 +423,9 @@ void AppClaudeMeter::_build_ui()
     _build_forecast_view();
     _build_sun_view();
     _build_net_view();
+    _build_uptime_view();
+    _build_pet_view();
+    _build_saver_view();
 
     _register_screen("clock", _clock_container, [this] { _update_clock(); });
     _register_screen("meter", _meter_container, [this] { _update_meter(); });
@@ -436,6 +439,9 @@ void AppClaudeMeter::_build_ui()
     _register_screen("forecast", _fc_container, [this] { _update_forecast(); });
     _register_screen("sunmoon", _sun_container, [this] { _update_sun(); });
     _register_screen("network", _net_container, [this] { _update_net(); });
+    _register_screen("uptime", _up_container, [this] { _update_uptime(); });
+    _register_screen("pet", _pet_container, [this] {});       // self-animating
+    _register_screen("saver", _saver_container, [this] {});   // self-animating
 }
 
 void AppClaudeMeter::_build_boot_screen()
@@ -1672,6 +1678,7 @@ void AppClaudeMeter::_data_loop()
         AqiSnap a;      bool aok = _fetch_aqi(a);
         ForecastSnap fc; SunSnap sun; bool dok = _fetch_daily(fc, sun);
         NetSnap n;      bool nok = _fetch_net(n);
+        UpSnap u;       bool uok = _fetch_uptime(u);
         {
             std::lock_guard<std::mutex> lock(_data_mutex);
             if (mok) _meet = m; else { _meet.ok = false; _meet.err = m.err; }
@@ -1680,6 +1687,7 @@ void AppClaudeMeter::_data_loop()
             if (dok) { _fc = fc; _sun = sun; }
             else { _fc.ok = false; _fc.err = fc.err; _sun.ok = false; _sun.err = sun.err; }
             if (nok) _net = n; else { _net.ok = false; _net.err = n.err; }
+            if (uok) _up = u; else { _up.ok = false; _up.err = u.err; }
         }
         // refresh every 10 minutes
         for (int i = 0; i < 600 * 4 && !_data_stop.load(); ++i) {
@@ -2060,6 +2068,194 @@ bool AppClaudeMeter::_fetch_net(NetSnap& out)
     out.latency_ms = (int)dt;
     out.ok = true;
     return true;
+}
+
+/* ----------------- Uptime monitor / Pet / Screensaver ----------------- */
+
+void AppClaudeMeter::_build_uptime_view()
+{
+    _up_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_up_container);
+    lv_obj_set_size(_up_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_up_container, 0, 0);
+    lv_obj_set_style_bg_color(_up_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_up_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_up_container, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* title = lv_label_create(_up_container);
+    lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_label_set_text(title, "UPTIME");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+
+    for (int i = 0; i < 5; ++i) {
+        _up_rows[i] = lv_label_create(_up_container);
+        lv_obj_set_style_text_color(_up_rows[i], COLOR_LABEL_DIM, 0);
+        lv_obj_set_style_text_font(_up_rows[i], &lv_font_montserrat_14, 0);
+        lv_label_set_text(_up_rows[i], "");
+        lv_obj_align(_up_rows[i], LV_ALIGN_TOP_LEFT, 10, 40 + i * 36);
+    }
+}
+
+void AppClaudeMeter::_update_uptime()
+{
+    if (!_up_rows[0]) return;
+    UpSnap u;
+    {
+        std::lock_guard<std::mutex> lock(_data_mutex);
+        u = _up;
+    }
+    if (!u.ok) {
+        lv_label_set_text(_up_rows[0], u.err.empty() ? "..." : u.err.c_str());
+        for (int i = 1; i < 5; ++i) lv_label_set_text(_up_rows[i], "");
+        return;
+    }
+    for (int i = 0; i < 5; ++i) {
+        if (i >= u.count) { lv_label_set_text(_up_rows[i], ""); continue; }
+        char b[48];
+        if (u.sites[i].up) std::snprintf(b, sizeof(b), "%-15s %dms", u.sites[i].host, u.sites[i].ms);
+        else std::snprintf(b, sizeof(b), "%-15s DOWN", u.sites[i].host);
+        lv_label_set_text(_up_rows[i], b);
+        lv_obj_set_style_text_color(_up_rows[i], u.sites[i].up ? COLOR_OK : COLOR_DANGER, 0);
+    }
+}
+
+bool AppClaudeMeter::_fetch_uptime(UpSnap& out)
+{
+    const std::string& cfg = HAL::SysCfg().getConfig().uptimeUrls;
+    if (cfg.empty()) { out.err = "set URLs"; return false; }
+
+    // Split on whitespace/commas, up to 5 URLs.
+    std::string urls[5];
+    int n = 0;
+    size_t i = 0;
+    while (i < cfg.size() && n < 5) {
+        while (i < cfg.size() && (cfg[i] == ' ' || cfg[i] == ',' || cfg[i] == '\n' || cfg[i] == '\r' || cfg[i] == '\t')) ++i;
+        size_t start = i;
+        while (i < cfg.size() && cfg[i] != ' ' && cfg[i] != ',' && cfg[i] != '\n' && cfg[i] != '\r' && cfg[i] != '\t') ++i;
+        if (i > start) urls[n++] = cfg.substr(start, i - start);
+    }
+    if (n == 0) { out.err = "set URLs"; return false; }
+
+    for (int k = 0; k < n; ++k) {
+        // host = between "://" and the next '/'
+        std::string host = urls[k];
+        size_t p = host.find("://");
+        if (p != std::string::npos) host = host.substr(p + 3);
+        size_t slash = host.find('/');
+        if (slash != std::string::npos) host = host.substr(0, slash);
+        std::snprintf(out.sites[k].host, sizeof(out.sites[k].host), "%s", host.c_str());
+
+        const std::uint32_t t0 = HAL::SysCtrl().millis();
+        auto resp = HAL::Http().get(urls[k], "", 6);
+        const std::uint32_t dt = HAL::SysCtrl().millis() - t0;
+        out.sites[k].up = (resp.http_code >= 200 && resp.http_code < 400);
+        out.sites[k].ms = (int)dt;
+    }
+    out.count = n;
+    out.ok = true;
+    return true;
+}
+
+void AppClaudeMeter::_build_pet_view()
+{
+    _pet_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_pet_container);
+    lv_obj_set_size(_pet_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_pet_container, 0, 0);
+    lv_obj_set_style_bg_color(_pet_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_pet_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_pet_container, LV_OBJ_FLAG_CLICKABLE);
+
+    // Round face that gently bobs.
+    lv_obj_t* face = lv_obj_create(_pet_container);
+    lv_obj_remove_style_all(face);
+    lv_obj_set_size(face, 130, 120);
+    lv_obj_set_style_radius(face, 60, 0);
+    lv_obj_set_style_bg_color(face, COLOR_ACCENT, 0);
+    lv_obj_set_style_bg_opa(face, LV_OPA_COVER, 0);
+    lv_obj_align(face, LV_ALIGN_CENTER, 0, 0);
+
+    auto eye = [&](int dx) {
+        lv_obj_t* e = lv_obj_create(face);
+        lv_obj_remove_style_all(e);
+        lv_obj_set_size(e, 18, 18);
+        lv_obj_set_style_radius(e, 9, 0);
+        lv_obj_set_style_bg_color(e, lv_color_hex(0x101010), 0);
+        lv_obj_set_style_bg_opa(e, LV_OPA_COVER, 0);
+        lv_obj_align(e, LV_ALIGN_CENTER, dx, -14);
+        return e;
+    };
+    lv_obj_t* eyeL = eye(-26);
+    lv_obj_t* eyeR = eye(26);
+
+    lv_obj_t* mouth = lv_obj_create(face);
+    lv_obj_remove_style_all(mouth);
+    lv_obj_set_size(mouth, 44, 10);
+    lv_obj_set_style_radius(mouth, 5, 0);
+    lv_obj_set_style_bg_color(mouth, lv_color_hex(0x101010), 0);
+    lv_obj_set_style_bg_opa(mouth, LV_OPA_COVER, 0);
+    lv_obj_align(mouth, LV_ALIGN_CENTER, 0, 26);
+
+    // Bob the whole face up and down.
+    static lv_anim_t bob;
+    lv_anim_init(&bob);
+    lv_anim_set_var(&bob, face);
+    lv_anim_set_exec_cb(&bob, [](void* o, int32_t v) { lv_obj_align((lv_obj_t*)o, LV_ALIGN_CENTER, 0, v); });
+    lv_anim_set_values(&bob, -14, 14);
+    lv_anim_set_duration(&bob, 900);
+    lv_anim_set_playback_duration(&bob, 900);
+    lv_anim_set_repeat_count(&bob, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&bob);
+
+    // Blink: squash both eyes periodically.
+    static lv_anim_t blinkL, blinkR;
+    auto blink = [](lv_anim_t* a, lv_obj_t* e) {
+        lv_anim_init(a);
+        lv_anim_set_var(a, e);
+        lv_anim_set_exec_cb(a, [](void* o, int32_t v) { lv_obj_set_height((lv_obj_t*)o, v); });
+        lv_anim_set_values(a, 18, 2);
+        lv_anim_set_duration(a, 120);
+        lv_anim_set_playback_duration(a, 120);
+        lv_anim_set_repeat_count(a, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_set_repeat_delay(a, 2600);
+        lv_anim_start(a);
+    };
+    blink(&blinkL, eyeL);
+    blink(&blinkR, eyeR);
+}
+
+void AppClaudeMeter::_build_saver_view()
+{
+    _saver_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_saver_container);
+    lv_obj_set_size(_saver_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_saver_container, 0, 0);
+    lv_obj_set_style_bg_color(_saver_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_saver_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_saver_container, LV_OBJ_FLAG_CLICKABLE);
+
+    // Falling "matrix"/starfield dots, each on its own looping y animation.
+    static lv_anim_t star_anim[kStarN];
+    for (int i = 0; i < kStarN; ++i) {
+        _stars[i] = lv_obj_create(_saver_container);
+        lv_obj_remove_style_all(_stars[i]);
+        const int sz = 2 + (i % 3);
+        lv_obj_set_size(_stars[i], sz, sz + 2);
+        lv_obj_set_style_radius(_stars[i], 1, 0);
+        lv_obj_set_style_bg_color(_stars[i], (i % 4 == 0) ? COLOR_ACCENT : lv_color_hex(0x66FF99), 0);
+        lv_obj_set_style_bg_opa(_stars[i], LV_OPA_COVER, 0);
+        lv_obj_set_x(_stars[i], (i * 71 + 13) % (SCREEN_W - 6));
+
+        lv_anim_init(&star_anim[i]);
+        lv_anim_set_var(&star_anim[i], _stars[i]);
+        lv_anim_set_exec_cb(&star_anim[i], [](void* o, int32_t v) { lv_obj_set_y((lv_obj_t*)o, v); });
+        lv_anim_set_values(&star_anim[i], -8, SCREEN_H + 8);
+        lv_anim_set_duration(&star_anim[i], 1500 + (i % 6) * 450);
+        lv_anim_set_delay(&star_anim[i], i * 160);
+        lv_anim_set_repeat_count(&star_anim[i], LV_ANIM_REPEAT_INFINITE);
+        lv_anim_start(&star_anim[i]);
+    }
 }
 
 void AppClaudeMeter::_wake()

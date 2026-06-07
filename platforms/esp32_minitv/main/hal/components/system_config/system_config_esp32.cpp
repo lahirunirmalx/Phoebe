@@ -54,6 +54,7 @@ bool SystemConfigEsp32::loadConfig()
         nvs_get_string(h, "widgetB", _config.widgetB);
         nvs_get_string(h, "city", _config.weatherCity);
         nvs_get_string(h, "ics", _config.icsUrl);
+        nvs_get_string(h, "urls", _config.uptimeUrls);
         int32_t tz = _config.tzOffsetMin;
         if (nvs_get_i32(h, "tz", &tz) == ESP_OK) _config.tzOffsetMin = tz;
         nvs_close(h);
@@ -92,6 +93,7 @@ bool SystemConfigEsp32::saveConfig()
         nvs_set_str(h, "widgetB", _config.widgetB.c_str());
         nvs_set_str(h, "city", _config.weatherCity.c_str());
         nvs_set_str(h, "ics", _config.icsUrl.c_str());
+        nvs_set_str(h, "urls", _config.uptimeUrls.c_str());
         nvs_set_i32(h, "tz", _config.tzOffsetMin);
         nvs_commit(h);
         nvs_close(h);

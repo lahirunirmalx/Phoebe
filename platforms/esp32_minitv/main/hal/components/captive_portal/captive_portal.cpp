@@ -145,6 +145,10 @@ static void handle_root()
          "<input name='ics' placeholder='https://calendar.../basic.ics' value='" +
          html_escape(c.icsUrl) + "'>";
 
+    h += "<label>Uptime URLs (up to 5, space/comma separated)</label>"
+         "<input name='urls' placeholder='https://a.com https://b.com' value='" +
+         html_escape(c.uptimeUrls) + "'>";
+
     h += "<div class='row'><input type='checkbox' name='mute' value='1'";
     if (c.mute) h += " checked";
     h += "><label style='margin:0'>Mute</label></div>";
@@ -174,6 +178,7 @@ static void handle_save()
     if (server.hasArg("tz")) c.tzOffsetMin = server.arg("tz").toInt();
     if (server.hasArg("city")) c.weatherCity = std::string(server.arg("city").c_str());
     if (server.hasArg("ics")) c.icsUrl = std::string(server.arg("ics").c_str());
+    if (server.hasArg("urls")) c.uptimeUrls = std::string(server.arg("urls").c_str());
     c.mute = server.hasArg("mute");
     c.hapticFeedback = server.hasArg("haptic");
 
