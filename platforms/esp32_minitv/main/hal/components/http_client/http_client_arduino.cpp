@@ -61,7 +61,32 @@ hal_components::HttpClientBase::Response HttpClientArduino::get(const std::strin
     int code = http.GET();
     out.http_code = code;
     if (code >= 0) {
-        out.body = std::string(http.getString().c_str());
+        // Stream the body into out.body with a hard cap. getString() would load
+        // the whole response (e.g. a large iCal feed) and then we'd copy it,
+        // doubling RAM -> bad_alloc -> abort/reboot. Capping avoids the OOM.
+        static const size_t BODY_CAP = 28 * 1024;
+        const int len = http.getSize(); // -1 when chunked/unknown
+        WiFiClient* stream = http.getStreamPtr();
+        if (stream) {
+            out.body.reserve(len > 0 && (size_t)len < BODY_CAP ? (size_t)len : 2048);
+            uint8_t buf[512];
+            const unsigned long deadline = millis() + (unsigned long)timeoutSec * 1000;
+            while (out.body.size() < BODY_CAP && (http.connected() || stream->available()) &&
+                   millis() < deadline) {
+                size_t avail = stream->available();
+                if (avail) {
+                    size_t want = avail < sizeof(buf) ? avail : sizeof(buf);
+                    size_t room = BODY_CAP - out.body.size();
+                    if (want > room) want = room;
+                    int r = stream->readBytes(buf, want);
+                    if (r <= 0) break;
+                    out.body.append(reinterpret_cast<char*>(buf), (size_t)r);
+                    if (len > 0 && out.body.size() >= (size_t)len) break;
+                } else {
+                    delay(5);
+                }
+            }
+        }
     } else {
         char buf[24];
         std::snprintf(buf, sizeof(buf), "transport %d", code);
