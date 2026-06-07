@@ -49,6 +49,10 @@ hal_components::HttpClientBase::Response HttpClientArduino::get(const std::strin
         return out;
     }
 
+    // Some servers reject requests without a User-Agent (403/406) -- present a
+    // browser-like one.
+    http.setUserAgent("Mozilla/5.0 (compatible; phoebe-minitv/1.0)");
+
     if (!bearerToken.empty()) {
         std::string auth = "Bearer " + bearerToken;
         http.addHeader("Authorization", auth.c_str());
