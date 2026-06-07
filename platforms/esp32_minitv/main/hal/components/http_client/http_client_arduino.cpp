@@ -61,6 +61,10 @@ hal_components::HttpClientBase::Response HttpClientArduino::get(const std::strin
         url = "http://" + url;
     }
 
+    // A TLS handshake needs a large contiguous block; if heap is low, fail
+    // gracefully rather than letting operator new throw -> abort -> reboot.
+    if (is_https && ESP.getFreeHeap() < 50000) { out.error = "low mem"; return out; }
+
     HTTPClient http;
     http.setTimeout(timeoutSec * 1000);
 
@@ -115,6 +119,8 @@ int HttpClientArduino::getLines(const std::string& url_in, const std::string& be
     std::string url = url_in;
     const bool is_https = url.rfind("https://", 0) == 0;
     if (!is_https && url.rfind("http://", 0) != 0) url = "http://" + url;
+
+    if (is_https && ESP.getFreeHeap() < 50000) return 0; // low mem -> skip
 
     HTTPClient http;
     http.setTimeout(timeoutSec * 1000);
