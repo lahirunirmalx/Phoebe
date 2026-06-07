@@ -2169,9 +2169,9 @@ bool AppClaudeMeter::_fetch_daily(ForecastSnap& fc, SunSnap& sun)
 bool AppClaudeMeter::_fetch_net(NetSnap& out)
 {
     const std::uint32_t t0 = HAL::SysCtrl().millis();
-    auto resp = HAL::Http().get("http://www.gstatic.com/generate_204", "", 8);
+    const int code = HAL::Http().status("http://www.gstatic.com/generate_204", 8);
     const std::uint32_t dt = HAL::SysCtrl().millis() - t0;
-    if (resp.http_code <= 0) { out.err = "no link"; return false; }
+    if (code <= 0) { out.err = "no link"; return false; }
     out.latency_ms = (int)dt;
     out.ok = true;
     return true;
@@ -2270,11 +2270,11 @@ bool AppClaudeMeter::_fetch_uptime(UpSnap& out)
         std::snprintf(out.sites[k].host, sizeof(out.sites[k].host), "%s", host.c_str());
 
         const std::uint32_t t0 = HAL::SysCtrl().millis();
-        auto resp = HAL::Http().get(urls[k], "", 12); // allow time for TLS handshake
+        const int code = HAL::Http().status(urls[k], 12); // status only -- don't download the page body
         const std::uint32_t dt = HAL::SysCtrl().millis() - t0;
         // Up = server responded without a server error: 2xx/3xx/4xx (incl 403).
         // 5xx server errors and transport failures (code <= 0) count as down.
-        out.sites[k].up = (resp.http_code > 0 && resp.http_code < 500);
+        out.sites[k].up = (code > 0 && code < 500);
         out.sites[k].ms = (int)dt;
     }
     out.count = n;

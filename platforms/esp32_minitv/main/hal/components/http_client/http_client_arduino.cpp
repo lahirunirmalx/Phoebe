@@ -111,6 +111,39 @@ hal_components::HttpClientBase::Response HttpClientArduino::get(const std::strin
     return out;
 }
 
+int HttpClientArduino::status(const std::string& url_in, int timeoutSec)
+{
+    if (WiFi.status() != WL_CONNECTED) return 0;
+
+    std::string url = url_in;
+    const bool is_https = url.rfind("https://", 0) == 0;
+    if (!is_https && url.rfind("http://", 0) != 0) url = "http://" + url;
+
+    if (is_https && ESP.getFreeHeap() < 50000) return 0;
+
+    HTTPClient http;
+    http.setTimeout(timeoutSec * 1000);
+    http.setConnectTimeout(timeoutSec * 1000);
+    bool begun;
+    WiFiClientSecure secure;
+    WiFiClient client;
+    if (is_https) {
+        secure.setInsecure();
+        secure.setHandshakeTimeout(timeoutSec);
+        begun = http.begin(secure, url.c_str());
+    } else {
+        begun = http.begin(client, url.c_str());
+    }
+    if (!begun) return 0;
+    http.setUserAgent("Mozilla/5.0 (compatible; phoebe-minitv/1.0)");
+
+    // GET returns the status once headers arrive; we deliberately never read the
+    // body (a real web page can be hundreds of KB -> OOM). end() drops it.
+    int code = http.GET();
+    http.end();
+    return code;
+}
+
 int HttpClientArduino::getLines(const std::string& url_in, const std::string& bearerToken,
                                 int timeoutSec, const std::function<void(const char*)>& on_line)
 {

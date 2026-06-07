@@ -40,6 +40,14 @@ public:
     {
         return 0;
     }
+
+    // Status-only request: returns the HTTP status code WITHOUT downloading the
+    // body (for uptime/ping checks against arbitrary sites with large pages).
+    // 0 = transport failure.
+    virtual int status(const std::string& /*url*/, int /*timeoutSec*/ = 8)
+    {
+        return 0;
+    }
 };
 
 } // namespace hal_components
