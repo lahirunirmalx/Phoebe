@@ -141,6 +141,10 @@ static void handle_root()
     }
     h += "</select>";
 
+    h += "<label>Calendar .ics URL (next meeting)</label>"
+         "<input name='ics' placeholder='https://calendar.../basic.ics' value='" +
+         html_escape(c.icsUrl) + "'>";
+
     h += "<div class='row'><input type='checkbox' name='mute' value='1'";
     if (c.mute) h += " checked";
     h += "><label style='margin:0'>Mute</label></div>";
@@ -169,6 +173,7 @@ static void handle_save()
     if (server.hasArg("widgetB")) c.widgetB = std::string(server.arg("widgetB").c_str());
     if (server.hasArg("tz")) c.tzOffsetMin = server.arg("tz").toInt();
     if (server.hasArg("city")) c.weatherCity = std::string(server.arg("city").c_str());
+    if (server.hasArg("ics")) c.icsUrl = std::string(server.arg("ics").c_str());
     c.mute = server.hasArg("mute");
     c.hapticFeedback = server.hasArg("haptic");
 

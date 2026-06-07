@@ -32,14 +32,16 @@ hal_components::HttpClientBase::Response HttpClientArduino::get(const std::strin
 
     // Use the modern begin(client, url) form. A local exporter rarely has a CA
     // the ESP trusts, so accept any cert on https.
+    // Local (not static) clients so concurrent fetches from different tasks
+    // don't share one connection object. Only one TLS context is alive per call.
     bool begun;
+    WiFiClientSecure secure;
+    WiFiClient client;
     if (is_https) {
-        static WiFiClientSecure secure;
         secure.setInsecure();
         secure.setHandshakeTimeout(timeoutSec); // bound the TLS handshake (else it can hang)
         begun = http.begin(secure, url.c_str());
     } else {
-        static WiFiClient client;
         begun = http.begin(client, url.c_str());
     }
     if (!begun) {

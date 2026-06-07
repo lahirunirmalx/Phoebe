@@ -163,6 +163,25 @@ private:
     lv_obj_t* _world_container = nullptr;
     lv_obj_t* _world_rows[4] = {nullptr, nullptr, nullptr, nullptr};
 
+    // Next meeting / Currency / AQI
+    lv_obj_t* _meet_container = nullptr;
+    lv_obj_t* _meet_title_lbl = nullptr;
+    lv_obj_t* _meet_when_lbl = nullptr;
+    lv_obj_t* _cur_container = nullptr;
+    lv_obj_t* _cur_rows[3] = {nullptr, nullptr, nullptr};
+    lv_obj_t* _aqi_container = nullptr;
+    lv_obj_t* _aqi_arc = nullptr;
+    lv_obj_t* _aqi_value_lbl = nullptr;
+    lv_obj_t* _aqi_sub_lbl = nullptr;
+
+    // Shared "extras" data fetch thread (meeting / currency / AQI ...).
+    std::thread _data_thread;
+    std::atomic<bool> _data_stop{false};
+    std::mutex _data_mutex;
+    struct MeetingSnap { std::string title; long start_epoch = 0; bool ok = false; std::string err; } _meet;
+    struct CurrencySnap { float usd = -1, eur = -1, gbp = -1; bool ok = false; std::string err; } _cur;
+    struct AqiSnap { int aqi = -1; float pm25 = -1; bool ok = false; std::string err; } _aqi;
+
     void _build_ui();
     void _build_clock_view();
     void _build_clock_5h_bar();
@@ -192,6 +211,18 @@ private:
     void _pomodoro_on_show();
     void _build_world_view();
     void _update_world();
+    void _build_meeting_view();
+    void _update_meeting();
+    void _build_currency_view();
+    void _update_currency();
+    void _build_aqi_view();
+    void _update_aqi();
+    void _start_data_thread();
+    void _stop_data_thread();
+    void _data_loop();
+    bool _fetch_meeting(MeetingSnap& out);
+    bool _fetch_currency(CurrencySnap& out);
+    bool _fetch_aqi(AqiSnap& out);
     void _build_weather_view();
     void _update_weather();
     void _set_weather_icon(int code);     // show/hide icon parts for a WMO code

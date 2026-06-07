@@ -8,6 +8,7 @@
 #include "hal/hal.h"
 #include "weather_locations.h"
 #include <ArduinoJson.h>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -278,6 +279,8 @@ AppClaudeMeter::~AppClaudeMeter()
     if (_fetch_thread.joinable()) _fetch_thread.join();
     _weather_stop.store(true);
     if (_weather_thread.joinable()) _weather_thread.join();
+    _data_stop.store(true);
+    if (_data_thread.joinable()) _data_thread.join();
 }
 
 void AppClaudeMeter::onCreate()
@@ -321,6 +324,7 @@ void AppClaudeMeter::onOpen()
 
     _start_fetch_thread();
     _start_weather_thread();
+    _start_data_thread();
 }
 
 void AppClaudeMeter::onRunning()
@@ -374,6 +378,7 @@ void AppClaudeMeter::onClose()
 
     _stop_fetch_thread();
     _stop_weather_thread();
+    _stop_data_thread();
 
     if (_clock_anim_arc) {
         lv_anim_delete(_clock_anim_arc, NULL);
@@ -411,6 +416,9 @@ void AppClaudeMeter::_build_ui()
     _build_weather_view();
     _build_pomodoro_view();
     _build_world_view();
+    _build_meeting_view();
+    _build_currency_view();
+    _build_aqi_view();
 
     _register_screen("clock", _clock_container, [this] { _update_clock(); });
     _register_screen("meter", _meter_container, [this] { _update_meter(); });
@@ -418,6 +426,9 @@ void AppClaudeMeter::_build_ui()
     _register_screen("pomodoro", _pomo_container, [this] { _update_pomodoro(); },
                      [this] { _pomodoro_on_show(); });
     _register_screen("world", _world_container, [this] { _update_world(); });
+    _register_screen("meeting", _meet_container, [this] { _update_meeting(); });
+    _register_screen("currency", _cur_container, [this] { _update_currency(); });
+    _register_screen("aqi", _aqi_container, [this] { _update_aqi(); });
 }
 
 void AppClaudeMeter::_build_boot_screen()
@@ -1420,6 +1431,339 @@ void AppClaudeMeter::_update_world()
         std::snprintf(buf, sizeof(buf), "%-9s %02d:%02d", zones[i].name, tmv.tm_hour, tmv.tm_min);
         lv_label_set_text(_world_rows[i], buf);
     }
+}
+
+/* --------------------- Next meeting / Currency / AQI ------------------- */
+
+namespace {
+// Portable struct-tm -> UTC epoch (newlib here has no timegm()).
+long tm_to_utc_epoch(int year, int mon0, int mday, int hh, int mm, int ss)
+{
+    static const int cum[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+    long days = (long)(year - 1970) * 365 + (year - 1969) / 4 - (year - 1901) / 100 + (year - 1601) / 400;
+    days += cum[mon0 % 12];
+    if (mon0 > 1 && ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0)) days += 1;
+    days += mday - 1;
+    return ((days * 24 + hh) * 60 + mm) * 60 + ss;
+}
+
+// Parse an iCal DTSTART value like "20260607T093000Z" / "20260607" to a UTC epoch.
+long parse_ics_dt(const std::string& s)
+{
+    if (s.size() < 8) return 0;
+    for (int i = 0; i < 8; ++i) if (!isdigit((unsigned char)s[i])) return 0;
+    int year = (s[0]-'0')*1000 + (s[1]-'0')*100 + (s[2]-'0')*10 + (s[3]-'0');
+    int mon0 = (s[4]-'0')*10 + (s[5]-'0') - 1;
+    int mday = (s[6]-'0')*10 + (s[7]-'0');
+    int hh = 0, mm = 0, ss = 0;
+    if (s.size() >= 15 && s[8] == 'T') {
+        hh = (s[9]-'0')*10 + (s[10]-'0');
+        mm = (s[11]-'0')*10 + (s[12]-'0');
+        ss = (s[13]-'0')*10 + (s[14]-'0');
+    }
+    return tm_to_utc_epoch(year, mon0, mday, hh, mm, ss); // TZID ignored -> UTC
+}
+
+lv_color_t aqi_color(int aqi)
+{
+    if (aqi < 0) return COLOR_LABEL_DIM;
+    if (aqi <= 40) return COLOR_OK;
+    if (aqi <= 80) return COLOR_WARN;
+    return COLOR_DANGER;
+}
+const char* aqi_text(int aqi)
+{
+    if (aqi < 0) return "--";
+    if (aqi <= 20) return "Good";
+    if (aqi <= 40) return "Fair";
+    if (aqi <= 60) return "Moderate";
+    if (aqi <= 80) return "Poor";
+    if (aqi <= 100) return "Very poor";
+    return "Extreme";
+}
+} // namespace
+
+void AppClaudeMeter::_build_meeting_view()
+{
+    _meet_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_meet_container);
+    lv_obj_set_size(_meet_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_meet_container, 0, 0);
+    lv_obj_set_style_bg_color(_meet_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_meet_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_meet_container, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* title = lv_label_create(_meet_container);
+    lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_label_set_text(title, "NEXT MEETING");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+
+    _meet_when_lbl = lv_label_create(_meet_container);
+    lv_obj_set_style_text_color(_meet_when_lbl, COLOR_FG, 0);
+    lv_obj_set_style_text_font(_meet_when_lbl, &lv_font_montserrat_48, 0);
+    lv_label_set_text(_meet_when_lbl, "--");
+    lv_obj_align(_meet_when_lbl, LV_ALIGN_CENTER, 0, -16);
+
+    _meet_title_lbl = lv_label_create(_meet_container);
+    lv_obj_set_style_text_color(_meet_title_lbl, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(_meet_title_lbl, &lv_font_montserrat_14, 0);
+    lv_label_set_long_mode(_meet_title_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(_meet_title_lbl, SCREEN_W - 24);
+    lv_obj_set_style_text_align(_meet_title_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(_meet_title_lbl, "");
+    lv_obj_align(_meet_title_lbl, LV_ALIGN_CENTER, 0, 44);
+}
+
+void AppClaudeMeter::_update_meeting()
+{
+    if (!_meet_when_lbl) return;
+    MeetingSnap m;
+    {
+        std::lock_guard<std::mutex> lock(_data_mutex);
+        m = _meet;
+    }
+    if (!m.ok) {
+        lv_label_set_text(_meet_when_lbl, "--");
+        lv_label_set_text(_meet_title_lbl, m.err.empty() ? "fetching..." : m.err.c_str());
+        return;
+    }
+    const long now = (long)time(nullptr);
+    const long mins = (m.start_epoch - now) / 60;
+    char when[24];
+    if (mins < 0) std::snprintf(when, sizeof(when), "now");
+    else if (mins < 60) std::snprintf(when, sizeof(when), "%ldm", mins);
+    else std::snprintf(when, sizeof(when), "%ldh %ldm", mins / 60, mins % 60);
+    lv_label_set_text(_meet_when_lbl, when);
+    lv_label_set_text(_meet_title_lbl, m.title.c_str());
+}
+
+void AppClaudeMeter::_build_currency_view()
+{
+    _cur_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_cur_container);
+    lv_obj_set_size(_cur_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_cur_container, 0, 0);
+    lv_obj_set_style_bg_color(_cur_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_cur_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_cur_container, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* title = lv_label_create(_cur_container);
+    lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_label_set_text(title, "FX -> LKR");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
+
+    for (int i = 0; i < 3; ++i) {
+        _cur_rows[i] = lv_label_create(_cur_container);
+        lv_obj_set_style_text_color(_cur_rows[i], COLOR_FG, 0);
+        lv_obj_set_style_text_font(_cur_rows[i], &lv_font_montserrat_24, 0);
+        lv_label_set_text(_cur_rows[i], "");
+        lv_obj_align(_cur_rows[i], LV_ALIGN_TOP_MID, 0, 60 + i * 50);
+    }
+}
+
+void AppClaudeMeter::_update_currency()
+{
+    if (!_cur_rows[0]) return;
+    CurrencySnap c;
+    {
+        std::lock_guard<std::mutex> lock(_data_mutex);
+        c = _cur;
+    }
+    if (!c.ok) {
+        lv_label_set_text(_cur_rows[0], c.err.empty() ? "fetching..." : c.err.c_str());
+        lv_label_set_text(_cur_rows[1], "");
+        lv_label_set_text(_cur_rows[2], "");
+        return;
+    }
+    char b[24];
+    std::snprintf(b, sizeof(b), "USD  %.1f", c.usd); lv_label_set_text(_cur_rows[0], b);
+    std::snprintf(b, sizeof(b), "EUR  %.1f", c.eur); lv_label_set_text(_cur_rows[1], b);
+    std::snprintf(b, sizeof(b), "GBP  %.1f", c.gbp); lv_label_set_text(_cur_rows[2], b);
+}
+
+void AppClaudeMeter::_build_aqi_view()
+{
+    _aqi_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_aqi_container);
+    lv_obj_set_size(_aqi_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_aqi_container, 0, 0);
+    lv_obj_set_style_bg_color(_aqi_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_aqi_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_aqi_container, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* title = lv_label_create(_aqi_container);
+    lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_label_set_text(title, "AIR QUALITY");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+
+    _aqi_arc = make_ring(_aqi_container, 150, 12);
+    lv_arc_set_range(_aqi_arc, 0, 100);
+    lv_obj_align(_aqi_arc, LV_ALIGN_CENTER, 0, -6);
+
+    _aqi_value_lbl = lv_label_create(_aqi_container);
+    lv_obj_set_style_text_color(_aqi_value_lbl, COLOR_FG, 0);
+    lv_obj_set_style_text_font(_aqi_value_lbl, &lv_font_montserrat_48, 0);
+    lv_label_set_text(_aqi_value_lbl, "--");
+    lv_obj_align(_aqi_value_lbl, LV_ALIGN_CENTER, 0, -14);
+
+    _aqi_sub_lbl = lv_label_create(_aqi_container);
+    lv_obj_set_style_text_color(_aqi_sub_lbl, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(_aqi_sub_lbl, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_aqi_sub_lbl, "");
+    lv_obj_align(_aqi_sub_lbl, LV_ALIGN_CENTER, 0, 18);
+}
+
+void AppClaudeMeter::_update_aqi()
+{
+    if (!_aqi_value_lbl) return;
+    AqiSnap a;
+    {
+        std::lock_guard<std::mutex> lock(_data_mutex);
+        a = _aqi;
+    }
+    if (!a.ok) {
+        lv_label_set_text(_aqi_value_lbl, "--");
+        lv_label_set_text(_aqi_sub_lbl, a.err.empty() ? "fetching..." : a.err.c_str());
+        return;
+    }
+    const lv_color_t c = aqi_color(a.aqi);
+    char b[16];
+    std::snprintf(b, sizeof(b), "%d", a.aqi);
+    lv_label_set_text(_aqi_value_lbl, b);
+    lv_obj_set_style_text_color(_aqi_value_lbl, c, 0);
+    int v = a.aqi; if (v > 100) v = 100; if (v < 0) v = 0;
+    lv_arc_set_value(_aqi_arc, v);
+    lv_obj_set_style_arc_color(_aqi_arc, c, LV_PART_INDICATOR);
+    char sub[40];
+    std::snprintf(sub, sizeof(sub), "%s  PM2.5 %d", aqi_text(a.aqi), (int)(a.pm25 + 0.5f));
+    lv_label_set_text(_aqi_sub_lbl, sub);
+}
+
+/* ---- shared extras fetch thread (meeting / currency / AQI) ------------- */
+
+void AppClaudeMeter::_start_data_thread()
+{
+    if (_data_thread.joinable()) return;
+    _data_stop.store(false);
+    _data_thread = std::thread([this] { _data_loop(); });
+}
+
+void AppClaudeMeter::_stop_data_thread()
+{
+    _data_stop.store(true);
+    if (_data_thread.joinable()) _data_thread.join();
+}
+
+void AppClaudeMeter::_data_loop()
+{
+    while (!_data_stop.load()) {
+        MeetingSnap m;  bool mok = _fetch_meeting(m);
+        CurrencySnap c; bool cok = _fetch_currency(c);
+        AqiSnap a;      bool aok = _fetch_aqi(a);
+        {
+            std::lock_guard<std::mutex> lock(_data_mutex);
+            if (mok) _meet = m; else { _meet.ok = false; _meet.err = m.err; }
+            if (cok) _cur = c;  else { _cur.ok = false;  _cur.err = c.err; }
+            if (aok) _aqi = a;  else { _aqi.ok = false;  _aqi.err = a.err; }
+        }
+        // refresh every 10 minutes
+        for (int i = 0; i < 600 * 4 && !_data_stop.load(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+    }
+}
+
+bool AppClaudeMeter::_fetch_meeting(MeetingSnap& out)
+{
+    const std::string url = HAL::SysCfg().getConfig().icsUrl;
+    if (url.empty()) { out.err = "set .ics URL"; return false; }
+
+    auto resp = HAL::Http().get(url, "", 15);
+    if (resp.http_code != 200) {
+        out.err = resp.http_code == 0 ? "net err" : "HTTP " + std::to_string(resp.http_code);
+        return false;
+    }
+
+    const long now = (long)time(nullptr);
+    long best = 0;
+    std::string best_title, cur_summary, cur_dt;
+    bool in_event = false;
+    const std::string& b = resp.body;
+    size_t pos = 0;
+    while (pos < b.size()) {
+        size_t eol = b.find('\n', pos);
+        if (eol == std::string::npos) eol = b.size();
+        std::string line = b.substr(pos, eol - pos);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        pos = eol + 1;
+
+        if (line.rfind("BEGIN:VEVENT", 0) == 0) { in_event = true; cur_summary.clear(); cur_dt.clear(); }
+        else if (line.rfind("END:VEVENT", 0) == 0) {
+            long st = parse_ics_dt(cur_dt);
+            if (st >= now && (best == 0 || st < best)) { best = st; best_title = cur_summary; }
+            in_event = false;
+        } else if (in_event) {
+            if (line.rfind("SUMMARY", 0) == 0) {
+                size_t c = line.find(':');
+                if (c != std::string::npos) cur_summary = line.substr(c + 1);
+            } else if (line.rfind("DTSTART", 0) == 0) {
+                size_t c = line.find(':');
+                if (c != std::string::npos) cur_dt = line.substr(c + 1);
+            }
+        }
+    }
+    if (best == 0) { out.err = "no upcoming"; return false; }
+    out.start_epoch = best;
+    out.title = best_title.empty() ? "(no title)" : best_title;
+    out.ok = true;
+    return true;
+}
+
+bool AppClaudeMeter::_fetch_currency(CurrencySnap& out)
+{
+    auto resp = HAL::Http().get("https://open.er-api.com/v6/latest/USD", "", 12);
+    if (resp.http_code != 200) {
+        out.err = resp.http_code == 0 ? "net err" : "HTTP " + std::to_string(resp.http_code);
+        return false;
+    }
+    JsonDocument doc;
+    if (deserializeJson(doc, resp.body) != DeserializationError::Ok) { out.err = "bad json"; return false; }
+    float lkr = doc["rates"]["LKR"] | -1.0f;
+    float eur = doc["rates"]["EUR"] | -1.0f;
+    float gbp = doc["rates"]["GBP"] | -1.0f;
+    if (lkr <= 0) { out.err = "no rates"; return false; }
+    out.usd = lkr;                          // 1 USD -> LKR
+    out.eur = (eur > 0) ? lkr / eur : -1;   // 1 EUR -> LKR
+    out.gbp = (gbp > 0) ? lkr / gbp : -1;   // 1 GBP -> LKR
+    out.ok = true;
+    return true;
+}
+
+bool AppClaudeMeter::_fetch_aqi(AqiSnap& out)
+{
+    const auto& loc = weather::find(HAL::SysCfg().getConfig().weatherCity);
+    char url[200];
+    std::snprintf(url, sizeof(url),
+                  "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=%.3f&longitude=%.3f"
+                  "&current=european_aqi,pm2_5",
+                  loc.lat, loc.lon);
+    auto resp = HAL::Http().get(url, "", 12);
+    if (resp.http_code != 200) {
+        out.err = resp.http_code == 0 ? "net err" : "HTTP " + std::to_string(resp.http_code);
+        return false;
+    }
+    JsonDocument doc;
+    if (deserializeJson(doc, resp.body) != DeserializationError::Ok) { out.err = "bad json"; return false; }
+    JsonObject cur = doc["current"];
+    if (cur.isNull()) { out.err = "no data"; return false; }
+    out.aqi = cur["european_aqi"] | -1;
+    out.pm25 = cur["pm2_5"] | -1.0f;
+    out.ok = (out.aqi >= 0);
+    if (!out.ok) out.err = "no fields";
+    return out.ok;
 }
 
 void AppClaudeMeter::_wake()
