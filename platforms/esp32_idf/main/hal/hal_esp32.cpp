@@ -18,6 +18,8 @@
 #include "components/battery_monitor/battery_monitor.h"
 #include "components/button/button.h"
 #include "components/display/display.h"
+#include "components/wifi_manager/wifi_manager_esp32.h"
+#include "components/http_client/http_client_arduino.h"
 extern "C" {
 #include "components/utils/wear_levelling/wear_levelling.h"
 }
@@ -71,6 +73,17 @@ void HalEsp32::init()
     // Display component
     _components.display = std::make_unique<DisplayMlcd>();
     _components.display->init();
+
+    // WiFi (NVS-backed credentials; ESP-IDF wifi stack drives the radio).
+    _components.wifi = std::make_unique<WifiManagerEsp32>();
+    _components.wifi->load();
+    if (_components.wifi->hasCredentials()) {
+        _components.wifi->connect();
+    }
+    _components.wifi->logState();
+
+    // HTTP client (Arduino HTTPClient on ESP32).
+    _components.http_client = std::make_unique<HttpClientArduino>();
 
     hal_test();
 }

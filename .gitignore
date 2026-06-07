@@ -1,3 +1,13 @@
 .vscode
 .cache
 build
+sdkconfig
+sdkconfig.old
+
+# Runtime config -- contains secrets (bearer token, wifi password)
+system_config.json
+system_config.json.bk
+tools/nvs_keys.csv
+tools/nvs.bin
+**/tools/nvs_keys.csv
+**/tools/nvs.bin

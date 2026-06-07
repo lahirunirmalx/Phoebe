@@ -27,4 +27,5 @@ private:
     std::string create_config_json();
     bool parse_json_and_copy_config(char* jsonContent);
     void backup_config_file();
+    void apply_env_overrides();
 };

@@ -142,3 +142,30 @@ hal_components::BleBase& HAL::HalBase::Ble()
     }
     return *_components.ble.get();
 }
+
+hal_components::WifiManagerBase& HAL::HalBase::Wifi()
+{
+    if (!_components.wifi) {
+        mclog::tagWarn(_tag, "getting null wifi component");
+        _components.wifi = std::make_unique<hal_components::WifiManagerBase>();
+    }
+    return *_components.wifi.get();
+}
+
+hal_components::HttpClientBase& HAL::HalBase::Http()
+{
+    if (!_components.http_client) {
+        mclog::tagWarn(_tag, "getting null http_client component");
+        _components.http_client = std::make_unique<hal_components::HttpClientBase>();
+    }
+    return *_components.http_client.get();
+}
+
+hal_components::BacklightBase& HAL::HalBase::Backlight()
+{
+    if (!_components.backlight) {
+        mclog::tagWarn(_tag, "getting null backlight component");
+        _components.backlight = std::make_unique<hal_components::BacklightBase>();
+    }
+    return *_components.backlight.get();
+}

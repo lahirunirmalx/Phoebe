@@ -1,0 +1,14 @@
+# Standalone TFT + touch pin-discovery test for the WROOM-32D board.
+CONFIG_IDF_TARGET="esp32"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Classic ESP32: UART console (no USB-JTAG), 115200.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# USB power into the WROOM-32D dev module dips below the brownout threshold;
+# disable it so the test doesn't reset (matches platforms/esp32_idf_test).
+CONFIG_ESP_BROWNOUT_DET=n
+
+# No long-running watchdog needed for a bring-up test.
+CONFIG_ESP_TASK_WDT_EN=n
+CONFIG_FREERTOS_HZ=1000

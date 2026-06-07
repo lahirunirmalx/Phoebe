@@ -26,7 +26,42 @@ public:
         std::string watchFace;
         std::string widgetA = "time";
         std::string widgetB = "date";
+
+        // Timezone offset from UTC, in minutes (e.g. +330 = UTC+5:30). Applied
+        // via the TZ env var on ESP32 so localtime() is correct.
+        int tzOffsetMin = 0;
+
+        // Weather location (city name from app/weather_locations.h).
+        std::string weatherCity = "Colombo";
+
+        // Secret iCal (.ics) URL for the "next meeting" screen (optional).
+        std::string icsUrl;
+
+        // Up to 5 URLs (whitespace/comma separated) for the uptime monitor.
+        std::string uptimeUrls;
+
+        // Claude usage endpoint (consumed by AppClaudeMeter).
+        // base: e.g. "http://127.0.0.1:7878"
+        // bearer: opaque API token sent as "Authorization: Bearer <token>"
+        std::string claudeBase;
+        std::string claudeBearer;
+
+        // WiFi credentials. Desktop persists these inside the same JSON;
+        // ESP32 keeps them in NVS namespace "wifi" (NVS-backed
+        // WifiManagerEsp32 is the source of truth there).
+        std::string wifiSsid;
+        std::string wifiPassword;
     };
+
+    bool isClaudeReady() const
+    {
+        return !_config.claudeBase.empty() && !_config.claudeBearer.empty();
+    }
+
+    bool isWifiReady() const
+    {
+        return !_config.wifiSsid.empty();
+    }
 
     ~SystemConfigBase() = default;
 

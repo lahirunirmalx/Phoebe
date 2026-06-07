@@ -20,6 +20,9 @@
 #include "components/battery_monitor.h"
 #include "components/button.h"
 #include "components/ble.h"
+#include "components/wifi_manager.h"
+#include "components/http_client.h"
+#include "components/backlight.h"
 
 /**
  * @brief Hardware abstraction layer, providing unified hardware/platform-specific behavior interfaces
@@ -73,6 +76,9 @@ public:
     hal_components::BatteryMonitorBase& BatteryMonitor();
     hal_components::ButtonBase& Button();
     hal_components::BleBase& Ble();
+    hal_components::WifiManagerBase& Wifi();
+    hal_components::HttpClientBase& Http();
+    hal_components::BacklightBase& Backlight();
 
 protected:
     // Component instance management
@@ -86,6 +92,9 @@ protected:
         std::unique_ptr<hal_components::BatteryMonitorBase> battery_monitor;
         std::unique_ptr<hal_components::ButtonBase> button;
         std::unique_ptr<hal_components::BleBase> ble;
+        std::unique_ptr<hal_components::WifiManagerBase> wifi;
+        std::unique_ptr<hal_components::HttpClientBase> http_client;
+        std::unique_ptr<hal_components::BacklightBase> backlight;
     };
     Components_t _components;
 };
@@ -167,6 +176,18 @@ inline hal_components::Button_Class& BtnDown()
 inline hal_components::BleBase& Ble()
 {
     return Get().Ble();
+}
+inline hal_components::WifiManagerBase& Wifi()
+{
+    return Get().Wifi();
+}
+inline hal_components::HttpClientBase& Http()
+{
+    return Get().Http();
+}
+inline hal_components::BacklightBase& Backlight()
+{
+    return Get().Backlight();
 }
 
 } // namespace HAL

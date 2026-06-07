@@ -19,6 +19,9 @@ find_package(SDL2 REQUIRED SDL2)
 include_directories(PUBLIC ${SDL2_INCLUDE_DIRS})
 target_include_directories(lvgl PUBLIC ${SDL2_INCLUDE_DIRS})
 
+# libcurl (for AppClaudeMeter HTTP /usage polling)
+find_package(CURL REQUIRED)
+
 # Mooncake 
 set(MOONCAKE_BUILD_EXAMPLE OFF)
 add_subdirectory(dependencies/mooncake)
@@ -52,17 +55,19 @@ file(GLOB_RECURSE APP_DESKTOP_BUILD_SRCS
 )
 add_executable(app_desktop_build ${APP_DESKTOP_BUILD_SRCS} ${APP_LAYER_SRCS})
 target_include_directories(app_desktop_build PUBLIC ${APP_LAYER_INCS})
-target_link_libraries(app_desktop_build PUBLIC 
-    mooncake 
+target_compile_definitions(app_desktop_build PRIVATE PHOEBE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(app_desktop_build PUBLIC
+    mooncake
     mooncake_log
-    lvgl 
-    lvgl_examples 
-    lvgl_demos 
-    ${SDL2_LIBRARIES} 
+    lvgl
+    lvgl_examples
+    lvgl_demos
+    ${SDL2_LIBRARIES}
     ArduinoJson
     smooth_ui_toolkit
     lgfx_slim
     pthread
+    CURL::libcurl
 )
 
 # Set build path

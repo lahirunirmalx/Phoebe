@@ -14,7 +14,12 @@
 #include <thread>
 #include <cstdio>
 #include <memory>
+#include <sys/stat.h>
 #include <shared/shared.h>
+
+#ifndef PHOEBE_SOURCE_DIR
+#define PHOEBE_SOURCE_DIR "."
+#endif
 
 static const std::string _tag = "BlePython";
 
@@ -22,8 +27,17 @@ static void _ble_python_daemon()
 {
     mclog::tagInfo(_tag, "start ble python daemon");
 
-    // Create pipe
-    std::string script_path = "../../platforms/desktop/hal/components/ble/desktop_ble_server.py";
+    // Resolve the BLE simulator script path relative to the repo source dir
+    // (passed in via CMake) so it works regardless of where the binary is run from.
+    std::string script_path =
+        std::string(PHOEBE_SOURCE_DIR) + "/platforms/desktop/hal/components/ble/desktop_ble_server.py";
+
+    struct stat st;
+    if (stat(script_path.c_str(), &st) != 0) {
+        mclog::tagWarn(_tag, "ble python script not found at {}, skipping daemon", script_path);
+        return;
+    }
+
     FILE* pipe = popen(("python3 -u " + script_path).c_str(), "r");
     if (!pipe) {
         mclog::tagError(_tag, "popen python script failed");
