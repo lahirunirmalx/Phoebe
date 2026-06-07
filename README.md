@@ -19,6 +19,26 @@ apps you flip through with the touch pad.
 
 ---
 
+## Screens
+
+<table>
+<tr>
+<td align="center"><img src="doc/UI_1.jpeg" width="200" alt="Clock VFD face"><br>Clock (VFD face)</td>
+<td align="center"><img src="doc/UI_2.jpeg" width="200" alt="Claude usage meter"><br>Claude usage meter</td>
+<td align="center"><img src="doc/UI_5.jpeg" width="200" alt="Weather"><br>Weather</td>
+</tr>
+<tr>
+<td align="center"><img src="doc/UI_3.jpeg" width="200" alt="Pomodoro timer"><br>Pomodoro</td>
+<td align="center"><img src="doc/UI_4.jpeg" width="200" alt="World clock"><br>World clock</td>
+<td align="center"><img src="doc/UI_7.jpeg" width="200" alt="Air quality"><br>Air quality</td>
+</tr>
+<tr>
+<td align="center"><img src="doc/UI_8.jpeg" width="200" alt="Animated pet"><br>Pet</td>
+<td align="center"><img src="doc/UI_6.jpeg" width="200" alt="Screensaver"><br>Screensaver</td>
+<td></td>
+</tr>
+</table>
+
 ## Hardware needed
 
 | Item | Notes |
