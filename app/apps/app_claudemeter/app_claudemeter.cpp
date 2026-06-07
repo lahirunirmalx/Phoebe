@@ -408,6 +408,19 @@ void AppClaudeMeter::_build_ui()
     lv_obj_add_flag(_root, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(_root, &AppClaudeMeter::_on_root_clicked, LV_EVENT_CLICKED, this);
 
+    // Transparent full-screen tap-catcher on the top layer. The touch indev
+    // always reports a press at screen-centre; without this, a centred clickable
+    // decoration (e.g. the forecast icon, moon disc, pet face) would swallow the
+    // tap and block screen cycling. The catcher sits above every screen's
+    // widgets so a tap always reaches _handle_tap.
+    lv_obj_t* tap = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(tap);
+    lv_obj_set_size(tap, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(tap, 0, 0);
+    lv_obj_set_style_bg_opa(tap, LV_OPA_TRANSP, 0);
+    lv_obj_add_flag(tap, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(tap, &AppClaudeMeter::_on_root_clicked, LV_EVENT_CLICKED, this);
+
     // Boot splash (shown until the clock syncs via SNTP).
     _build_boot_screen();
 
