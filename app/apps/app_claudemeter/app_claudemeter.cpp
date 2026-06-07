@@ -408,6 +408,20 @@ void AppClaudeMeter::_build_ui()
     lv_obj_add_flag(_root, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(_root, &AppClaudeMeter::_on_root_clicked, LV_EVENT_CLICKED, this);
 
+    // Pinned-state indicator: a transparent full-screen box with an accent
+    // border on the top layer, shown only while a screen is pinned. Created
+    // before the tap-catcher so the catcher stays topmost; it's non-clickable
+    // so it never intercepts taps.
+    _pin_border = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(_pin_border);
+    lv_obj_set_size(_pin_border, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_pin_border, 0, 0);
+    lv_obj_set_style_bg_opa(_pin_border, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(_pin_border, COLOR_ACCENT, 0);
+    lv_obj_set_style_border_width(_pin_border, 4, 0);
+    lv_obj_clear_flag(_pin_border, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
+
     // Transparent full-screen tap-catcher on the top layer. The touch indev
     // always reports a press at screen-centre; without this, a centred clickable
     // decoration (e.g. the forecast icon, moon disc, pet face) would swallow the
@@ -2387,6 +2401,7 @@ void AppClaudeMeter::_wake()
 {
     _display_on = true;
     _pinned = false;
+    if (_pin_border) lv_obj_add_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
     HAL::Backlight().on();
     _show_screen(0); // wake back to the first screen (clock)
 }
@@ -2410,11 +2425,13 @@ void AppClaudeMeter::_handle_tap()
     if (is_double) {
         // Double-tap pins the current screen: stays on, never sleeps, no cycle.
         _pinned = true;
+        if (_pin_border) lv_obj_clear_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
     // Single tap cycles to the next screen and clears any pin.
     _pinned = false;
+    if (_pin_border) lv_obj_add_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
     if (!_screens.empty()) {
         _show_screen((_screen_idx + 1) % (int)_screens.size());
     }

@@ -78,6 +78,7 @@ private:
 
     // Root container fills the screen and owns the click event.
     lv_obj_t* _root = nullptr;
+    lv_obj_t* _pin_border = nullptr; // accent outline shown while a screen is pinned
 
     // Boot splash shown until the clock is synced via SNTP.
     bool _booting = true;
