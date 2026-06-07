@@ -143,6 +143,71 @@ restarting the binary.
 
 ---
 
+## Freenove ESP32 Mini TV build (`esp32_minitv`)
+
+A full hardware port of Phoebe to the **Freenove "ESP32 Mini TV" (FNK0112)** —
+a little desktop cube with a 240×240 IPS screen and a single capacitive touch
+button. Beyond the watch + Claude meter, it ships a whole carousel of apps you
+cycle through with the touch pad.
+
+### Hardware needed
+
+| Item | Notes |
+| ---- | ----- |
+| **Freenove ESP32 Mini TV (FNK0112)** | The cube — classic ESP32, **240×240 ST7789 SPI** display, capacitive touch pad. **[Buy on AliExpress](https://www.aliexpress.com/item/1005012027955795.html)** |
+| USB‑C cable | Power + flashing (the board's CH340 shows up as `/dev/ttyUSB0`). |
+| 2.4 GHz WiFi | For the Claude meter, weather, currency, etc. (configured via the on‑device captive portal). |
+
+That's it — no soldering or extra parts; the display and touch are built into
+the board. Confirmed pinout (baked into the firmware): SCLK 14, MOSI 13, DC 2,
+CS 15, backlight 19 *(active‑low)*, panel‑VDD enable 21 *(active‑low)*, touch
+pad **T9 / GPIO32**.
+
+### Build & flash
+
+```bash
+cd platforms/esp32_minitv
+./flash.sh                 # build + flash /dev/ttyUSB0 + serial monitor
+./flash.sh --no-monitor    # build + flash only
+```
+
+Needs ESP‑IDF **v4.4** (Arduino is pulled in as a managed component). `flash.sh`
+sources `export.sh` and re‑adds the classic `xtensa-esp32-elf` toolchain to PATH
+if it's missing. There is also a standalone `platforms/tft_touch_test/` harness
+used to bring up the display + touch.
+
+### Using it
+
+The screen is **dark by default** (power saving). Interaction is the single
+touch pad:
+
+- **Tap** — wake / cycle to the next app.
+- **Double‑tap** — pin the current app (no sleep, stops cycling) until you tap.
+- **Long‑press (≥3 s)** — open the WiFi/settings **captive portal**.
+- **5 min idle** — display turns off; a notification (or tap) wakes it.
+
+Apps in the cycle: **clock** (watch faces) → **Claude meter** (5h/7d rings) →
+**weather** → **pomodoro** → **world clock** → **next meeting** → **currency**
+(FX→LKR) → **AQI** → **3‑day forecast** → **sun & moon** → **network ping** →
+**uptime** → **pet** → **screensaver**. The backlight also **pulses** on Claude
+fetch / error / limit‑reached as an ambient notification.
+
+### First‑boot setup (captive portal)
+
+NVS is empty on a fresh board, so long‑press to open the portal: join WiFi
+**`Phoebe-Setup`** (password `12345678`), browse to `http://192.168.4.1`, and
+set WiFi, timezone, watch face, widgets, **Claude base/bearer**, a **Sri Lanka
+weather city**, an optional **calendar `.ics` URL** (next‑meeting), and up to
+**5 uptime URLs**. Save reboots into the configured device.
+
+All data sources are free and key‑less except your own endpoints:
+[Open‑Meteo](https://open-meteo.com) (weather / forecast / sun / AQI),
+`open.er-api.com` (currency), your secret iCal feed (meeting), and
+[claude-usage-exporter](https://github.com/lahirunirmalx/claude-usage-exporter)
+(Claude meter).
+
+---
+
 ## Ember's Trace
 
 *A fire that once burned fiercely in the depths of the soul, now reduced to a faint flicker — whispering of vows left unfulfilled.*
