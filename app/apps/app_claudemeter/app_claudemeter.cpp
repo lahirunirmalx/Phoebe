@@ -11,9 +11,11 @@
 #include <cctype>
 #include <chrono>
 #include <cstring>
+#include <cstdlib>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
+#include <vector>
 #include <mooncake_log.h>
 #include <lvgl.h>
 
@@ -1500,8 +1502,16 @@ long tm_to_utc_epoch(int year, int mon0, int mday, int hh, int mm, int ss)
     return ((days * 24 + hh) * 60 + mm) * 60 + ss;
 }
 
-// Parse an iCal DTSTART value like "20260607T093000Z" / "20260607" to a UTC epoch.
-long parse_ics_dt(const std::string& s)
+// Parse an iCal DTSTART value to a UTC epoch.
+//   "20260607T093000Z"  -> UTC (trailing Z), used as-is.
+//   "20260607T093000"   -> floating / TZID local time. We don't parse VTIMEZONE,
+//                          so it's interpreted in the device's configured zone
+//                          (tz_offset_min) and converted to UTC -- correct for a
+//                          personal calendar, the common case here.
+//   "20260607"          -> all-day; treated as local midnight, same conversion.
+// Treating local times as UTC (the old behaviour) made events linger as
+// "upcoming" for the whole UTC offset after they had really started.
+long parse_ics_dt(const std::string& s, int tz_offset_min)
 {
     if (s.size() < 8) return 0;
     for (int i = 0; i < 8; ++i) if (!isdigit((unsigned char)s[i])) return 0;
@@ -1514,7 +1524,189 @@ long parse_ics_dt(const std::string& s)
         mm = (s[11]-'0')*10 + (s[12]-'0');
         ss = (s[13]-'0')*10 + (s[14]-'0');
     }
-    return tm_to_utc_epoch(year, mon0, mday, hh, mm, ss); // TZID ignored -> UTC
+    long epoch = tm_to_utc_epoch(year, mon0, mday, hh, mm, ss);
+    // No 'Z' suffix means the value is wall-clock local, not UTC: UTC = local - offset.
+    const bool is_utc = s.find('Z') != std::string::npos;
+    if (!is_utc) epoch -= (long)tz_offset_min * 60;
+    return epoch;
+}
+
+// --- Recurring events (RRULE) --------------------------------------------
+//
+// All recurrence math runs in "local epoch" (seconds since 1970 in the device's
+// wall clock) so weekday/month-day land on the right local day. gmtime_r breaks
+// a local epoch into local fields (it interprets its argument as UTC, which IS
+// the local wall clock here), and tm_to_utc_epoch rebuilds one. The caller
+// converts to/from real UTC with the configured tz offset.
+//
+// Supported: FREQ=DAILY/WEEKLY/MONTHLY/YEARLY, INTERVAL, WEEKLY BYDAY, COUNT,
+// UNTIL, and EXDATE exclusions. Not handled (uncommon for a personal calendar):
+// MONTHLY/YEARLY BYDAY (e.g. "2nd Monday"), BYMONTHDAY lists, WKST != Monday.
+struct Recur {
+    enum Freq { NONE, DAILY, WEEKLY, MONTHLY, YEARLY };
+    Freq freq = NONE;
+    int interval = 1;
+    std::uint8_t byday = 0; // bit d set for weekday d (Mon=0 .. Sun=6)
+    int count = 0;          // 0 = unbounded
+};
+
+// "MO" / "2MO" / "-1FR" -> weekday bit index (Mon=0..Sun=6), or -1.
+int rrule_weekday_bit(const std::string& tok)
+{
+    if (tok.size() < 2) return -1;
+    const std::string d = tok.substr(tok.size() - 2); // strip any "2"/"−1" prefix
+    static const char* const names[7] = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"};
+    for (int i = 0; i < 7; ++i)
+        if (d == names[i]) return i;
+    return -1;
+}
+
+// Parse an RRULE value. `until_utc` returns the UNTIL instant as a UTC epoch (0
+// if absent); UNTIL per RFC 5545 is UTC, so parse_ics_dt reads its trailing Z.
+Recur parse_rrule(const std::string& s, long& until_utc, int tz_offset_min)
+{
+    Recur r;
+    until_utc = 0;
+    size_t i = 0;
+    while (i < s.size()) {
+        size_t e = s.find(';', i);
+        if (e == std::string::npos) e = s.size();
+        const std::string kv = s.substr(i, e - i);
+        const size_t eq = kv.find('=');
+        if (eq != std::string::npos) {
+            const std::string k = kv.substr(0, eq), v = kv.substr(eq + 1);
+            if (k == "FREQ") {
+                if (v == "DAILY") r.freq = Recur::DAILY;
+                else if (v == "WEEKLY") r.freq = Recur::WEEKLY;
+                else if (v == "MONTHLY") r.freq = Recur::MONTHLY;
+                else if (v == "YEARLY") r.freq = Recur::YEARLY;
+            } else if (k == "INTERVAL") {
+                r.interval = atoi(v.c_str());
+                if (r.interval < 1) r.interval = 1;
+            } else if (k == "COUNT") {
+                r.count = atoi(v.c_str());
+            } else if (k == "UNTIL") {
+                until_utc = parse_ics_dt(v, tz_offset_min);
+            } else if (k == "BYDAY") {
+                size_t j = 0;
+                while (j < v.size()) {
+                    size_t c = v.find(',', j);
+                    if (c == std::string::npos) c = v.size();
+                    const int b = rrule_weekday_bit(v.substr(j, c - j));
+                    if (b >= 0) r.byday |= (std::uint8_t)(1 << b);
+                    j = c + 1;
+                }
+            }
+        }
+        i = e + 1;
+    }
+    return r;
+}
+
+bool epoch_excluded(long occ, const std::vector<long>& ex)
+{
+    for (long e : ex) if (e == occ) return true;
+    return false;
+}
+
+// First occurrence (local epoch) at or after now_local, honoring INTERVAL /
+// BYDAY / COUNT / UNTIL / EXDATE. Returns 0 if the series has no such occurrence.
+long next_occurrence_local(long start_local, long now_local, const Recur& r,
+                           long until_local, const std::vector<long>& ex)
+{
+    if (r.freq == Recur::NONE) return start_local;
+
+    const long DAY = 86400;
+    const int GUARD = 800;
+    const long INTV = r.interval > 0 ? r.interval : 1;
+
+    struct tm st;
+    { time_t t = (time_t)start_local; gmtime_r(&t, &st); }
+    const long tod = (long)st.tm_hour * 3600 + st.tm_min * 60 + st.tm_sec;
+
+    auto valid_day = [](int y, int mon0, int day) -> bool {
+        static const int md[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+        int dim = md[mon0 % 12];
+        if (mon0 == 1 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) dim = 29;
+        return day >= 1 && day <= dim;
+    };
+
+    // Fixed-length periods (daily, or weekly with no BYDAY): closed-form jump
+    // to the first index >= now, then step past any EXDATE holes.
+    if (r.freq == Recur::DAILY || (r.freq == Recur::WEEKLY && r.byday == 0)) {
+        const long period = (r.freq == Recur::DAILY ? 1 : 7) * INTV * DAY;
+        long idx = (start_local < now_local)
+                       ? (now_local - start_local + period - 1) / period : 0;
+        for (int g = 0; g < GUARD; ++g, ++idx) {
+            if (r.count > 0 && idx > r.count - 1) return 0;
+            const long occ = start_local + idx * period;
+            if (until_local > 0 && occ > until_local) return 0;
+            if (occ >= now_local && !epoch_excluded(occ, ex)) return occ;
+        }
+        return 0;
+    }
+
+    if (r.freq == Recur::WEEKLY) { // BYDAY set
+        const int sdow = (st.tm_wday + 6) % 7;             // Mon=0..Sun=6
+        const long startMon = (start_local - (start_local % DAY)) - (long)sdow * DAY;
+        struct tm nt;
+        { time_t t = (time_t)now_local; gmtime_r(&t, &nt); }
+        const int ndow = (nt.tm_wday + 6) % 7;
+        const long nowMon = (now_local - (now_local % DAY)) - (long)ndow * DAY;
+        long wk = (nowMon - startMon) / (7 * DAY);
+        if (wk < 0) wk = 0;
+        wk -= wk % INTV;
+        int g = 0;
+        for (long w = wk; g < GUARD; w += INTV) {
+            for (int d = 0; d < 7 && g < GUARD; ++d, ++g) {
+                if (!(r.byday & (1 << d))) continue;
+                const long occ = startMon + w * 7 * DAY + (long)d * DAY + tod;
+                if (occ < start_local) continue;
+                if (until_local > 0 && occ > until_local) return 0;
+                if (occ >= now_local && !epoch_excluded(occ, ex)) return occ;
+            }
+        }
+        return 0;
+    }
+
+    // Calendar-stepped periods (monthly by month-day, yearly by date).
+    const int sy = st.tm_year + 1900, smon0 = st.tm_mon, sday = st.tm_mday;
+    struct tm nt;
+    { time_t t = (time_t)now_local; gmtime_r(&t, &nt); }
+
+    if (r.freq == Recur::MONTHLY) {
+        const long sm = (long)sy * 12 + smon0;
+        long k = ((long)(nt.tm_year + 1900) * 12 + nt.tm_mon) - sm;
+        if (k < 0) k = 0;
+        k -= k % INTV;
+        for (int g = 0; g < GUARD; ++g, k += INTV) {
+            const long m = sm + k;
+            const int cy = (int)(m / 12), cmon0 = (int)(m % 12);
+            if (!valid_day(cy, cmon0, sday)) continue; // e.g. day 31 in a short month
+            const long occ = tm_to_utc_epoch(cy, cmon0, sday, st.tm_hour, st.tm_min, st.tm_sec);
+            if (r.count > 0 && k / INTV > r.count - 1) return 0;
+            if (until_local > 0 && occ > until_local) return 0;
+            if (occ >= now_local && occ >= start_local && !epoch_excluded(occ, ex)) return occ;
+        }
+        return 0;
+    }
+
+    if (r.freq == Recur::YEARLY) {
+        long k = (long)(nt.tm_year + 1900) - sy;
+        if (k < 0) k = 0;
+        k -= k % INTV;
+        for (int g = 0; g < GUARD; ++g, k += INTV) {
+            const int cy = sy + (int)k;
+            if (!valid_day(cy, smon0, sday)) continue; // Feb 29 on a common year
+            const long occ = tm_to_utc_epoch(cy, smon0, sday, st.tm_hour, st.tm_min, st.tm_sec);
+            if (r.count > 0 && k / INTV > r.count - 1) return 0;
+            if (until_local > 0 && occ > until_local) return 0;
+            if (occ >= now_local && occ >= start_local && !epoch_excluded(occ, ex)) return occ;
+        }
+        return 0;
+    }
+
+    return 0;
 }
 
 lv_color_t aqi_color(int aqi)
@@ -1839,18 +2031,37 @@ bool AppClaudeMeter::_fetch_meeting(MeetingSnap& out)
     const std::string url = HAL::SysCfg().getConfig().icsUrl;
     if (url.empty()) { out.err = "set .ics URL"; return false; }
 
+    const int tz = HAL::SysCfg().getConfig().tzOffsetMin;
     const long now = (long)time(nullptr);
+    const long now_local = now + (long)tz * 60;
     long best = 0;
-    std::string best_title, cur_summary, cur_dt;
+    std::string best_title, cur_summary, cur_dt, cur_rrule;
+    std::vector<long> cur_exdates; // EXDATE instances, as local epoch
     bool in_event = false;
 
     // Stream the iCal line-by-line so a large feed never sits in RAM.
     int code = HAL::Http().getLines(url, "", 15, [&](const char* line) {
         if (strncmp(line, "BEGIN:VEVENT", 12) == 0) {
-            in_event = true; cur_summary.clear(); cur_dt.clear();
+            in_event = true;
+            cur_summary.clear(); cur_dt.clear(); cur_rrule.clear(); cur_exdates.clear();
         } else if (strncmp(line, "END:VEVENT", 10) == 0) {
-            long st = parse_ics_dt(cur_dt);
-            if (st >= now && (best == 0 || st < best)) { best = st; best_title = cur_summary; }
+            const long st_utc = parse_ics_dt(cur_dt, tz);
+            long cand = 0;
+            if (st_utc != 0) {
+                if (cur_rrule.empty()) {
+                    cand = (st_utc >= now) ? st_utc : 0; // single event
+                } else {
+                    long until_utc = 0;
+                    const Recur r = parse_rrule(cur_rrule, until_utc, tz);
+                    const long until_local = until_utc ? until_utc + (long)tz * 60 : 0;
+                    const long occ_local = next_occurrence_local(
+                        st_utc + (long)tz * 60, now_local, r, until_local, cur_exdates);
+                    cand = occ_local ? occ_local - (long)tz * 60 : 0; // back to UTC
+                }
+            }
+            if (cand >= now && cand != 0 && (best == 0 || cand < best)) {
+                best = cand; best_title = cur_summary;
+            }
             in_event = false;
         } else if (in_event) {
             if (strncmp(line, "SUMMARY", 7) == 0) {
@@ -1859,6 +2070,23 @@ bool AppClaudeMeter::_fetch_meeting(MeetingSnap& out)
             } else if (strncmp(line, "DTSTART", 7) == 0) {
                 const char* c = strchr(line, ':');
                 if (c) cur_dt = c + 1;
+            } else if (strncmp(line, "RRULE", 5) == 0) {
+                const char* c = strchr(line, ':');
+                if (c) cur_rrule = c + 1;
+            } else if (strncmp(line, "EXDATE", 6) == 0) {
+                // May be a comma-separated list, and may appear on several lines.
+                const char* c = strchr(line, ':');
+                if (c) {
+                    std::string v = c + 1;
+                    size_t j = 0;
+                    while (j < v.size()) {
+                        size_t k = v.find(',', j);
+                        if (k == std::string::npos) k = v.size();
+                        const long e = parse_ics_dt(v.substr(j, k - j), tz);
+                        if (e != 0) cur_exdates.push_back(e + (long)tz * 60); // local epoch
+                        j = k + 1;
+                    }
+                }
             }
         }
     });
