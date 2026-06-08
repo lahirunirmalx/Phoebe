@@ -74,10 +74,16 @@ toolchain to PATH if it's missing. There is also a standalone
 The screen is **dark by default** (power saving). Everything is driven by the
 one touch pad:
 
-- **Tap** — wake / cycle to the next app.
-- **Double‑tap** — pin the current app (no sleep, stops cycling) until you tap.
-- **Long‑press (≥3 s)** — open the WiFi/settings **captive portal**.
+- **Tap** (< 0.4 s) — wake / cycle to the next app.
+- **Hold** (0.4–2.5 s, release) — pin the current app (no sleep, stops cycling);
+  an accent border marks it. Hold again to unpin.
+- **Long‑press (≥3 s)** — open the WiFi/settings **captive portal**. Holding
+  ≥3 s again while the portal is up cancels it and returns to the clock.
 - **5 min idle** — display turns off; a tap or a notification wakes it.
+
+The pin gesture commits on **release** (by hold duration), so cycling, pinning,
+and opening the portal all share the one pad without colliding — a portal hold
+never flips the pin on its way to 3 s.
 
 Apps in the cycle:
 
@@ -99,7 +105,8 @@ portal:
 3. Set: WiFi, timezone, watch face, widgets, **Claude base + bearer**, a
    **Sri Lanka weather city**, an optional **calendar `.ics` URL** (next
    meeting), and up to **5 uptime URLs**.
-4. Save — the device reboots configured.
+4. Save — the device reboots configured. (Or **Cancel — back to clock** on the
+   page, or **hold the pad 3 s**, to leave without changes.)
 
 Settings persist in NVS across re‑flashes. All data sources are free and
 key‑less apart from your own endpoints:
@@ -134,8 +141,8 @@ The clock app picks a face from the `watchFace` setting. Faces:
 - **Memory:** mbedTLS dynamic buffers are enabled, large feeds are streamed
   (never buffered whole), and uptime/ping use a status‑only request that never
   downloads the page body — all to keep TLS off the heap‑exhaustion cliff.
-- **Single touch:** the GPIO32 pad drives an LVGL pointer indev plus tap /
-  double‑tap / long‑press gesture detection.
+- **Single touch:** the GPIO32 pad drives an LVGL pointer indev plus
+  hold‑duration gesture detection (tap / hold‑to‑pin / ≥3 s long‑press).
 
 ## Desktop simulator (development)
 

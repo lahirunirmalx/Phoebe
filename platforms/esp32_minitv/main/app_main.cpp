@@ -18,6 +18,7 @@
 #include <mooncake_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_system.h>
 #include "hal/hal_esp32.h"
 #include "hal/hal_config.h"
 #include "hal/ui_signals.h"
@@ -59,6 +60,7 @@ static void show_portal_overlay()
     label("pass: 12345678", 0xaaaaaa, nullptr);
     label("then open", 0xaaaaaa, nullptr);
     label("http://192.168.4.1", 0x99ff00, nullptr);
+    label("hold 3s to cancel", 0x666666, nullptr);
 }
 
 static void ui_task(void*)
@@ -81,6 +83,12 @@ static void ui_task(void*)
                 show_portal_overlay();
                 HAL::Backlight().on();
                 portal_shown = true;
+            }
+            // A fresh 3s hold cancels setup and reboots back to the clock
+            // (mirrors the long-press that opened the portal; nothing is saved).
+            if (touch::take_long_press()) {
+                mclog::tagInfo("ui", "long-press: cancelling portal, rebooting to clock");
+                esp_restart();
             }
             lv_timer_handler();
             vTaskDelay(pdMS_TO_TICKS(10));

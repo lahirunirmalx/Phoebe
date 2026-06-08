@@ -156,7 +156,10 @@ static void handle_root()
     if (c.hapticFeedback) h += " checked";
     h += "><label style='margin:0'>Haptic feedback</label></div>";
 
-    h += "<button type='submit'>Save &amp; Reboot</button></form></div></body></html>";
+    h += "<button type='submit'>Save &amp; Reboot</button></form>"
+         "<a href='/cancel' style='display:block;text-align:center;margin-top:14px;"
+         "color:#9aa;font-size:14px'>Cancel &mdash; back to clock</a>"
+         "</div></body></html>";
 
     server.send(200, "text/html", h.c_str());
 }
@@ -194,6 +197,18 @@ static void handle_save()
     esp_restart();
 }
 
+static void handle_cancel()
+{
+    server.send(200, "text/html",
+                "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
+                "<style>body{font-family:sans-serif;background:#12121c;color:#eee;text-align:center;padding:48px}"
+                "h2{color:#9f0}</style></head><body><h2>Cancelled</h2>"
+                "<p>Returning to the clock...</p></body></html>");
+    mclog::tagInfo(TAG, "setup cancelled, rebooting (no changes saved)");
+    delay(800);
+    esp_restart();
+}
+
 static void handle_captive()
 {
     server.sendHeader("Location", "http://192.168.4.1/", true);
@@ -213,6 +228,7 @@ void run()
 
     server.on("/", HTTP_GET, handle_root);
     server.on("/save", HTTP_POST, handle_save);
+    server.on("/cancel", HTTP_GET, handle_cancel);
     server.on("/generate_204", handle_captive);       // Android
     server.on("/hotspot-detect.html", handle_captive); // Apple
     server.on("/connecttest.txt", handle_captive);     // Windows

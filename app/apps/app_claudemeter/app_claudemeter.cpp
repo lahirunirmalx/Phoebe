@@ -36,8 +36,18 @@ constexpr int SCREEN_H = PHOEBE_SCREEN_H;
 // Turn the display (backlight) off after this long with no touch, unless the
 // meter view is pinned. Only applies where the backlight is controllable.
 constexpr std::uint32_t DISPLAY_SLEEP_MS = 5 * 60 * 1000; // 5 minutes
-// Two taps within this window count as a double-tap (pin the meter).
-constexpr std::uint32_t DOUBLE_TAP_MS = 400;
+// Single-input gesture bands (one centre touch). Pin commits on RELEASE, by how
+// long the touch was held:
+//   < TAP_MAX_MS            -> tap: cycle to the next screen
+//   [PIN_MIN_MS, PIN_MAX_MS)-> hold: toggle pin on the current screen
+//   >= PIN_MAX_MS           -> reserved for the >=3s captive-portal hold
+//                              (touch driver, HAL_TOUCH_LONGPRESS_MS) -> no-op here
+// Committing on release (not mid-hold) means a portal hold never flashes the pin
+// border on its way to 3s. The 2.5s..3s gap is a deliberate dead zone so a
+// slightly-too-long pin hold doesn't accidentally trip the portal.
+constexpr std::uint32_t TAP_MAX_MS = 400;
+constexpr std::uint32_t PIN_MIN_MS = 400;
+constexpr std::uint32_t PIN_MAX_MS = 2500;
 
 // Clock canvas geometry (square) -- sized to fill the 240x240 panel inside the
 // usage rings on the analog face.
@@ -320,7 +330,8 @@ void AppClaudeMeter::onOpen()
     _display_on = true;
     _pinned = false;
     _last_interaction_ms = HAL::SysCtrl().millis();
-    _last_click_ms = 0;
+    _press_start_ms = 0;
+    _press_active = false;
     HAL::Backlight().on();
 
     // One unified network thread fetches Claude + weather + all extras serially
@@ -406,7 +417,7 @@ void AppClaudeMeter::_build_ui()
     lv_obj_set_style_bg_color(_root, COLOR_BG, 0);
     lv_obj_set_style_bg_opa(_root, LV_OPA_COVER, 0);
     lv_obj_add_flag(_root, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(_root, &AppClaudeMeter::_on_root_clicked, LV_EVENT_CLICKED, this);
+    lv_obj_add_event_cb(_root, &AppClaudeMeter::_on_touch_event, LV_EVENT_ALL, this);
 
     // Pinned-state indicator: a transparent full-screen box with an accent
     // border on the top layer, shown only while a screen is pinned. Created
@@ -426,14 +437,14 @@ void AppClaudeMeter::_build_ui()
     // always reports a press at screen-centre; without this, a centred clickable
     // decoration (e.g. the forecast icon, moon disc, pet face) would swallow the
     // tap and block screen cycling. The catcher sits above every screen's
-    // widgets so a tap always reaches _handle_tap.
+    // widgets so a tap always reaches the gesture handler.
     lv_obj_t* tap = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(tap);
     lv_obj_set_size(tap, SCREEN_W, SCREEN_H);
     lv_obj_set_pos(tap, 0, 0);
     lv_obj_set_style_bg_opa(tap, LV_OPA_TRANSP, 0);
     lv_obj_add_flag(tap, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(tap, &AppClaudeMeter::_on_root_clicked, LV_EVENT_CLICKED, this);
+    lv_obj_add_event_cb(tap, &AppClaudeMeter::_on_touch_event, LV_EVENT_ALL, this);
 
     // Boot splash (shown until the clock syncs via SNTP).
     _build_boot_screen();
@@ -2406,15 +2417,25 @@ void AppClaudeMeter::_wake()
     _show_screen(0); // wake back to the first screen (clock)
 }
 
-void AppClaudeMeter::_handle_tap()
+void AppClaudeMeter::_on_press()
 {
-    if (_booting) return; // ignore taps until the clock is up
+    if (_booting) return; // ignore touches until the clock is up
+    _press_start_ms = HAL::SysCtrl().millis();
+    _press_active = true;
+    _last_interaction_ms = _press_start_ms;
+}
+
+void AppClaudeMeter::_on_release()
+{
+    if (_booting) return;
+    if (!_press_active) return; // release without a matching press we tracked
+    _press_active = false;
+
     const std::uint32_t now = HAL::SysCtrl().millis();
-    const bool is_double = (now - _last_click_ms) < DOUBLE_TAP_MS;
-    _last_click_ms = now;
+    const std::uint32_t held = now - _press_start_ms;
     _last_interaction_ms = now;
 
-    // If the display was asleep, the tap just wakes it back to the clock.
+    // If the display was asleep, any touch just wakes it back to the clock.
     if (!_display_on) {
         _wake();
         return;
@@ -2422,26 +2443,47 @@ void AppClaudeMeter::_handle_tap()
 
     HAL::Backlight().on();
 
-    if (is_double) {
-        // Double-tap pins the current screen: stays on, never sleeps, no cycle.
-        _pinned = true;
-        if (_pin_border) lv_obj_clear_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
+    // Held long enough that the touch driver's >=3s long-press has (or is about
+    // to) open the captive portal -- do nothing here so we never pin on that path.
+    if (held >= PIN_MAX_MS) return;
+
+    // Medium hold toggles pin on the current screen: stays on, never sleeps,
+    // no cycle. Committing on release means the pin border only appears once the
+    // user lets go, so a portal hold doesn't flash it on the way to 3s.
+    if (held >= PIN_MIN_MS) {
+        _pinned = !_pinned;
+        if (_pin_border) {
+            if (_pinned) lv_obj_clear_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
+            else         lv_obj_add_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
+        }
         return;
     }
 
-    // Single tap cycles to the next screen and clears any pin.
-    _pinned = false;
-    if (_pin_border) lv_obj_add_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
-    if (!_screens.empty()) {
-        _show_screen((_screen_idx + 1) % (int)_screens.size());
+    // Short tap cycles to the next screen and clears any pin.
+    if (held < TAP_MAX_MS) {
+        _pinned = false;
+        if (_pin_border) lv_obj_add_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
+        if (!_screens.empty()) {
+            _show_screen((_screen_idx + 1) % (int)_screens.size());
+        }
     }
 }
 
-void AppClaudeMeter::_on_root_clicked(lv_event_t* e)
+void AppClaudeMeter::_on_touch_event(lv_event_t* e)
 {
     auto* self = static_cast<AppClaudeMeter*>(lv_event_get_user_data(e));
     if (!self) return;
-    self->_handle_tap();
+    switch (lv_event_get_code(e)) {
+        case LV_EVENT_PRESSED:
+            self->_on_press();
+            break;
+        case LV_EVENT_RELEASED:
+        case LV_EVENT_PRESS_LOST:
+            self->_on_release();
+            break;
+        default:
+            break;
+    }
 }
 
 /* ------------------------------ HTTP fetch ------------------------------ */

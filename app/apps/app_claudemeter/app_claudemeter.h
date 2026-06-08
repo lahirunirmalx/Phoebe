@@ -56,7 +56,8 @@ private:
     WatchFace _watch_face = WF_Analog;
     std::uint32_t _last_tick_ms = 0;
     std::uint32_t _last_interaction_ms = 0; // for display-sleep timing
-    std::uint32_t _last_click_ms = 0;       // for double-tap detection
+    std::uint32_t _press_start_ms = 0;      // touch-down time, for hold-duration gestures
+    bool _press_active = false;             // a tracked physical press is in progress
     bool _pinned = false;                   // current screen pinned: no sleep, no cycle
     bool _display_on = true;                // our view of the backlight state
 
@@ -232,7 +233,8 @@ private:
     void _register_screen(const char* name, lv_obj_t* container, std::function<void()> update,
                           std::function<void()> on_show = {});
     void _show_screen(int idx);
-    void _handle_tap();   // single = cycle screens, double = pin current, asleep = wake
+    void _on_press();     // touch down: start the hold timer
+    void _on_release();   // touch up: tap = cycle, hold = toggle pin, asleep = wake
     void _wake();         // turn backlight on, show first screen, unpin
     void _update_clock();
     void _update_clock_5h_bar();
@@ -286,5 +288,5 @@ private:
     void _fetch_loop();
     bool _fetch_once(Snapshot& out);
 
-    static void _on_root_clicked(lv_event_t* e);
+    static void _on_touch_event(lv_event_t* e);
 };
