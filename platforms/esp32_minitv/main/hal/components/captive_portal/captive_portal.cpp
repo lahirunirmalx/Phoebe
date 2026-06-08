@@ -76,7 +76,7 @@ static void handle_root()
 {
     const auto& c = HAL::SysCfg().getConfig();
 
-    static const char* faces[] = {"analog", "digital", "animated", "seg7", "vfd"};
+    static const char* faces[] = {"analog", "digital", "animated", "seg7", "vfd", "flip"};
     static const char* widgets[] = {"time", "date", "battery"};
 
     std::string h;
@@ -112,7 +112,7 @@ static void handle_root()
     h += "<label>Claude bearer token</label><input name='bearer' type='password' value='" +
          html_escape(c.claudeBearer) + "'>";
 
-    h += "<label>Watch face</label>" + select_field("watchFace", faces, 5, c.watchFace);
+    h += "<label>Watch face</label>" + select_field("watchFace", faces, 6, c.watchFace);
     h += "<label>Widget A</label>" + select_field("widgetA", widgets, 3, c.widgetA);
     h += "<label>Widget B</label>" + select_field("widgetB", widgets, 3, c.widgetB);
 

@@ -49,7 +49,7 @@ private:
     // Watch-face style. Resolved at onOpen() from SysCfg().watchFace.
     // ""/"analog" -> WF_Analog; "digital" -> WF_Digital; "animated" -> WF_Animated;
     // "seg7" -> WF_Seg7 (7-segment LCD); "vfd" -> WF_VFD (5x7 dot-matrix).
-    enum WatchFace { WF_Analog = 0, WF_Digital, WF_Animated, WF_Seg7, WF_VFD };
+    enum WatchFace { WF_Analog = 0, WF_Digital, WF_Animated, WF_Seg7, WF_VFD, WF_Flip };
 
     std::vector<Screen> _screens;           // registered screens, cycled by tap
     int _screen_idx = 0;                    // index of the currently shown screen
@@ -110,6 +110,11 @@ private:
     // Animated-only
     lv_obj_t* _clock_anim_arc = nullptr;
     lv_anim_t _clock_anim;
+
+    // Flip-clock (split-flap) face: two digit cards, animated on minute change.
+    lv_obj_t* _flip_hh = nullptr;
+    lv_obj_t* _flip_mm = nullptr;
+    int _flip_last_min = -1;
 
     // Seg7 / VFD: canvas + backing buffer + last drawn second for cheap diffing.
     lv_obj_t* _clock_face_canvas = nullptr;
@@ -209,6 +214,22 @@ private:
     lv_obj_t* _saver_container = nullptr;
     static constexpr int kStarN = 18;
     lv_obj_t* _stars[kStarN] = {};
+
+    // Conway's Game of Life screen (canvas grid, one generation per tick).
+    lv_obj_t* _life_container = nullptr;
+    lv_obj_t* _life_canvas = nullptr;
+    std::uint8_t* _life_canvas_buf = nullptr;
+    std::vector<std::uint8_t> _life_cur, _life_next;
+    std::uint32_t _life_rng = 0x1234567u;
+    int _life_gen = 0;
+    int _life_static = 0;   // generations with unchanged population (-> reseed)
+    int _life_prev_pop = -1;
+
+    // Matrix rain screen (falling green character columns + lv_anim scroll).
+    lv_obj_t* _matrix_container = nullptr;
+    static constexpr int kMatrixCols = 16;
+    lv_obj_t* _matrix_cols[kMatrixCols] = {};
+    std::uint32_t _matrix_rng = 0x9e3779b9u;
     lv_obj_t* _up_container = nullptr;
     lv_obj_t* _up_rows[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
     lv_obj_t* _up_dots[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
@@ -227,6 +248,7 @@ private:
     void _build_clock_animated();
     void _build_clock_seg7();
     void _build_clock_vfd();
+    void _build_clock_flip();
     void _build_meter_view();
     void _build_boot_screen();
     bool _time_is_synced() const;
@@ -243,6 +265,7 @@ private:
     void _update_clock_animated(const struct tm& tm_info);
     void _update_clock_seg7(const struct tm& tm_info);
     void _update_clock_vfd(const struct tm& tm_info);
+    void _update_clock_flip(const struct tm& tm_info);
     void _update_meter();
     void _build_pomodoro_view();
     void _update_pomodoro();
@@ -266,6 +289,11 @@ private:
     bool _fetch_uptime(UpSnap& out);
     void _build_pet_view();
     void _build_saver_view();
+    void _build_life_view();
+    void _update_life();
+    void _life_seed();
+    void _build_matrix_view();
+    void _update_matrix();
     void _build_uptime_view();
     void _update_uptime();
     void _build_forecast_view();

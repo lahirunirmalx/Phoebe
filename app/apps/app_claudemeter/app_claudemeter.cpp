@@ -51,6 +51,17 @@ constexpr std::uint32_t TAP_MAX_MS = 400;
 constexpr std::uint32_t PIN_MIN_MS = 400;
 constexpr std::uint32_t PIN_MAX_MS = 2500;
 
+// Conway's Game of Life. The grid is rendered 1 pixel per cell into a tiny
+// LIFE_G x LIFE_G canvas (~7 KB) that is then scaled LIFE_SCALE x with
+// anti-aliasing off to fill the full 240x240 panel crisply -- a full-screen
+// 240x240 RGB565 canvas (115 KB) would clash with the LVGL frame buffer.
+// 60 * 4 = 240.
+constexpr int LIFE_G = 60;
+constexpr int LIFE_SCALE = SCREEN_W / LIFE_G;
+
+// Matrix-rain: characters per falling column.
+constexpr int MATRIX_ROWS = 17;
+
 // Clock canvas geometry (square) -- sized to fill the 240x240 panel inside the
 // usage rings on the analog face.
 constexpr int CLOCK_CANVAS_W = 150;
@@ -408,6 +419,8 @@ void AppClaudeMeter::onClose()
     _clock_canvas_buf = nullptr;
     delete[] _clock_face_canvas_buf;
     _clock_face_canvas_buf = nullptr;
+    delete[] _life_canvas_buf;
+    _life_canvas_buf = nullptr;
 }
 
 void AppClaudeMeter::_build_ui()
@@ -466,6 +479,8 @@ void AppClaudeMeter::_build_ui()
     _build_uptime_view();
     _build_pet_view();
     _build_saver_view();
+    _build_life_view();
+    _build_matrix_view();
 
     _register_screen("clock", _clock_container, [this] { _update_clock(); });
     _register_screen("meter", _meter_container, [this] { _update_meter(); });
@@ -482,6 +497,8 @@ void AppClaudeMeter::_build_ui()
     _register_screen("uptime", _up_container, [this] { _update_uptime(); });
     _register_screen("pet", _pet_container, [this] {});       // self-animating
     _register_screen("saver", _saver_container, [this] {});   // self-animating
+    _register_screen("life", _life_container, [this] { _update_life(); });
+    _register_screen("matrix", _matrix_container, [this] { _update_matrix(); });
 }
 
 void AppClaudeMeter::_build_boot_screen()
@@ -563,6 +580,7 @@ AppClaudeMeter::WatchFace AppClaudeMeter::_resolve_watch_face() const
     if (wf == "animated") return WF_Animated;
     if (wf == "seg7") return WF_Seg7;
     if (wf == "vfd") return WF_VFD;
+    if (wf == "flip") return WF_Flip;
     return WF_Analog;
 }
 
@@ -584,6 +602,7 @@ void AppClaudeMeter::_build_clock_view()
         case WF_Animated: _build_clock_animated(); break;
         case WF_Seg7:     _build_clock_seg7();     break;
         case WF_VFD:      _build_clock_vfd();      break;
+        case WF_Flip:     _build_clock_flip();     break;
         case WF_Analog:
         default:          _build_clock_analog();   break;
     }
@@ -863,6 +882,7 @@ void AppClaudeMeter::_update_clock()
         case WF_Animated: _update_clock_animated(*tm_info); break;
         case WF_Seg7:     _update_clock_seg7(*tm_info);     break;
         case WF_VFD:      _update_clock_vfd(*tm_info);      break;
+        case WF_Flip:     _update_clock_flip(*tm_info);     break;
         case WF_Analog:
         default:          _update_clock_analog(*tm_info);   break;
     }
@@ -1078,6 +1098,82 @@ void AppClaudeMeter::_update_clock_vfd(const struct tm& tm_info)
     std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
                   tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
     lv_label_set_text(_clock_date_label, buf);
+}
+
+void AppClaudeMeter::_build_clock_flip()
+{
+    // Two split-flap "cards" (HH / MM), each a rounded slab with a thin centre
+    // seam, big digits, and a flap animation when the value changes.
+    auto make_card = [&](int dx) -> lv_obj_t* {
+        lv_obj_t* c = lv_obj_create(_clock_container);
+        lv_obj_remove_style_all(c);
+        lv_obj_set_size(c, 92, 112);
+        lv_obj_align(c, LV_ALIGN_CENTER, dx, -4);
+        lv_obj_set_style_radius(c, 12, 0);
+        lv_obj_set_style_bg_color(c, lv_color_hex(0x1d1d2b), 0);
+        lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(c, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+        lv_obj_t* seam = lv_obj_create(c);          // split-flap hinge line
+        lv_obj_remove_style_all(seam);
+        lv_obj_set_size(seam, 92, 2);
+        lv_obj_align(seam, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_bg_color(seam, COLOR_BG, 0);
+        lv_obj_set_style_bg_opa(seam, LV_OPA_COVER, 0);
+        return c;
+    };
+    auto make_digit = [&](lv_obj_t* parent) -> lv_obj_t* {
+        lv_obj_t* l = lv_label_create(parent);
+        lv_obj_set_style_text_color(l, COLOR_FG, 0);
+        lv_obj_set_style_text_font(l, &lv_font_montserrat_48, 0);
+        lv_label_set_text(l, "00");
+        lv_obj_center(l);
+        return l;
+    };
+    _flip_hh = make_digit(make_card(-50));
+    _flip_mm = make_digit(make_card(50));
+    _flip_last_min = -1;
+
+    _clock_date_label = lv_label_create(_clock_container);
+    lv_obj_set_style_text_color(_clock_date_label, COLOR_LABEL_DIM, 0);
+    lv_obj_set_style_text_font(_clock_date_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(_clock_date_label, "");
+    lv_obj_align(_clock_date_label, LV_ALIGN_BOTTOM_MID, 0, -10);
+}
+
+void AppClaudeMeter::_update_clock_flip(const struct tm& tm_info)
+{
+    if (!_flip_hh || !_flip_mm) return;
+
+    char hh[12], mm[12];
+    std::snprintf(hh, sizeof(hh), "%02d", tm_info.tm_hour);
+    std::snprintf(mm, sizeof(mm), "%02d", tm_info.tm_min);
+    lv_label_set_text(_flip_hh, hh);
+    lv_label_set_text(_flip_mm, mm);
+
+    // Flap the changed card(s) once per minute: a quick drop-in + fade.
+    if (tm_info.tm_min != _flip_last_min) {
+        const bool hour_changed = (_flip_last_min >= 0) && (tm_info.tm_min == 0);
+        _flip_last_min = tm_info.tm_min;
+        auto flap = [](lv_obj_t* o) {
+            lv_anim_t a;
+            lv_anim_init(&a);
+            lv_anim_set_var(&a, o);
+            lv_anim_set_values(&a, 0, 256);
+            lv_anim_set_duration(&a, 260);
+            lv_anim_set_exec_cb(&a, [](void* p, int32_t v) {
+                lv_obj_set_style_translate_y((lv_obj_t*)p, -(int)((256 - v) * 12 / 256), 0);
+                lv_obj_set_style_opa((lv_obj_t*)p, (lv_opa_t)(80 + v * 175 / 256), 0);
+            });
+            lv_anim_start(&a);
+        };
+        flap(_flip_mm);
+        if (hour_changed) flap(_flip_hh);
+    }
+
+    char buf[40];
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
+                  tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
+    if (_clock_date_label) lv_label_set_text(_clock_date_label, buf);
 }
 
 void AppClaudeMeter::_update_meter()
@@ -2633,6 +2729,145 @@ void AppClaudeMeter::_build_saver_view()
         lv_anim_set_delay(&star_anim[i], i * 160);
         lv_anim_set_repeat_count(&star_anim[i], LV_ANIM_REPEAT_INFINITE);
         lv_anim_start(&star_anim[i]);
+    }
+}
+
+// ----- Conway's Game of Life -------------------------------------------------
+
+void AppClaudeMeter::_life_seed()
+{
+    _life_rng ^= (HAL::SysCtrl().millis() * 2654435761u) | 1u; // vary each reseed
+    auto rnd = [this]() {
+        std::uint32_t x = _life_rng;
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+        _life_rng = x;
+        return x;
+    };
+    for (int i = 0; i < LIFE_G * LIFE_G; ++i)
+        _life_cur[i] = (rnd() % 100) < 28 ? 1 : 0; // ~28% live
+    _life_gen = 0;
+    _life_static = 0;
+    _life_prev_pop = -1;
+}
+
+void AppClaudeMeter::_build_life_view()
+{
+    _life_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_life_container);
+    lv_obj_set_size(_life_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_life_container, 0, 0);
+    lv_obj_set_style_bg_color(_life_container, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(_life_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_life_container, LV_OBJ_FLAG_CLICKABLE);
+
+    // One pixel per cell, scaled up (nearest-neighbour) to fill the panel.
+    _life_canvas_buf = new std::uint8_t[LIFE_G * LIFE_G * 2];
+    _life_canvas = lv_canvas_create(_life_container);
+    lv_canvas_set_buffer(_life_canvas, _life_canvas_buf, LIFE_G, LIFE_G, LV_COLOR_FORMAT_RGB565);
+    lv_obj_align(_life_canvas, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_image_set_pivot(_life_canvas, 0, 0);
+    lv_image_set_antialias(_life_canvas, false);     // crisp blocks, not blur
+    lv_image_set_scale(_life_canvas, 256 * LIFE_SCALE); // 256 = 1x
+    lv_canvas_fill_bg(_life_canvas, COLOR_BG, LV_OPA_COVER);
+
+    _life_cur.assign(LIFE_G * LIFE_G, 0);
+    _life_next.assign(LIFE_G * LIFE_G, 0);
+    _life_seed();
+}
+
+void AppClaudeMeter::_update_life()
+{
+    if (!_life_canvas || _life_cur.empty()) return;
+
+    // One generation, toroidal wrap, classic B3/S23 rule.
+    int pop = 0;
+    for (int y = 0; y < LIFE_G; ++y) {
+        const int yu = (y + LIFE_G - 1) % LIFE_G;
+        const int yd = (y + 1) % LIFE_G;
+        for (int x = 0; x < LIFE_G; ++x) {
+            const int xl = (x + LIFE_G - 1) % LIFE_G;
+            const int xr = (x + 1) % LIFE_G;
+            const int n = _life_cur[yu * LIFE_G + xl] + _life_cur[yu * LIFE_G + x] + _life_cur[yu * LIFE_G + xr]
+                        + _life_cur[y  * LIFE_G + xl]                              + _life_cur[y  * LIFE_G + xr]
+                        + _life_cur[yd * LIFE_G + xl] + _life_cur[yd * LIFE_G + x] + _life_cur[yd * LIFE_G + xr];
+            const std::uint8_t alive = _life_cur[y * LIFE_G + x];
+            const std::uint8_t next = (n == 3 || (alive && n == 2)) ? 1 : 0;
+            _life_next[y * LIFE_G + x] = next;
+            pop += next;
+        }
+    }
+    _life_cur.swap(_life_next);
+
+    // Reseed when the colony dies out, stalls (stable population), or runs long.
+    if (pop == _life_prev_pop) _life_static++;
+    else _life_static = 0;
+    _life_prev_pop = pop;
+    if (pop == 0 || _life_static > 14 || ++_life_gen > 600) _life_seed();
+
+    // Draw: clear, then one pixel per live cell (scaled up for display).
+    lv_canvas_fill_bg(_life_canvas, COLOR_BG, LV_OPA_COVER);
+    for (int y = 0; y < LIFE_G; ++y)
+        for (int x = 0; x < LIFE_G; ++x)
+            if (_life_cur[y * LIFE_G + x])
+                lv_canvas_set_px(_life_canvas, x, y, COLOR_ACCENT, LV_OPA_COVER);
+}
+
+// ----- Matrix rain -----------------------------------------------------------
+
+static void matrix_fill_column(char* out, int rows, std::uint32_t& rng)
+{
+    static const char cs[] = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ#$%&*+=<>?";
+    const int n = (int)sizeof(cs) - 1;
+    int p = 0;
+    for (int r = 0; r < rows; ++r) {
+        rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+        out[p++] = cs[rng % n];
+        if (r < rows - 1) out[p++] = '\n';
+    }
+    out[p] = '\0';
+}
+
+void AppClaudeMeter::_build_matrix_view()
+{
+    _matrix_container = lv_obj_create(_root);
+    lv_obj_remove_style_all(_matrix_container);
+    lv_obj_set_size(_matrix_container, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(_matrix_container, 0, 0);
+    lv_obj_set_style_bg_color(_matrix_container, lv_color_hex(0x001005), 0);
+    lv_obj_set_style_bg_opa(_matrix_container, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(_matrix_container, LV_OBJ_FLAG_CLICKABLE);
+
+    const int colw = SCREEN_W / kMatrixCols;
+    char buf[MATRIX_ROWS * 2 + 1];
+    for (int i = 0; i < kMatrixCols; ++i) {
+        lv_obj_t* l = lv_label_create(_matrix_container);
+        lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(l, lv_color_hex((i % 5 == 0) ? 0x99ff99 : 0x33dd55), 0);
+        lv_obj_set_style_text_line_space(l, 3, 0);
+        matrix_fill_column(buf, MATRIX_ROWS, _matrix_rng);
+        lv_label_set_text(l, buf);
+        lv_obj_set_x(l, i * colw + 4);
+        _matrix_cols[i] = l;
+
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, l);
+        lv_anim_set_exec_cb(&a, [](void* o, int32_t v) { lv_obj_set_y((lv_obj_t*)o, v); });
+        lv_anim_set_values(&a, -360, SCREEN_H);
+        lv_anim_set_duration(&a, 2200 + (i % 6) * 480);
+        lv_anim_set_delay(&a, i * 130);
+        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_start(&a);
+    }
+}
+
+void AppClaudeMeter::_update_matrix()
+{
+    char buf[MATRIX_ROWS * 2 + 1];
+    for (int i = 0; i < kMatrixCols; ++i) {
+        if (!_matrix_cols[i]) continue;
+        matrix_fill_column(buf, MATRIX_ROWS, _matrix_rng);
+        lv_label_set_text(_matrix_cols[i], buf);
     }
 }
 
