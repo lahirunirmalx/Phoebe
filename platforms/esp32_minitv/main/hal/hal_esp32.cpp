@@ -133,9 +133,10 @@ void HalEsp32::lvgl_init()
     auto display = lv_display_create(HAL_SCREEN_WIDTH, HAL_SCREEN_HEIGHT);
     lv_display_set_flush_cb(display, lvgl_flush_cb);
 
-    // Partial double-buffer (40 rows each ~= 19 KB) -- far cheaper on RAM than a
-    // 115 KB full-frame buffer, leaving headroom for WiFi + the captive portal.
-    constexpr int BUF_LINES = 40;
+    // Partial double-buffer (60 rows each ~= 28 KB) -- fewer flush calls /
+    // set_window overheads per frame than a smaller buffer, while staying far
+    // cheaper on RAM than a 115 KB full-frame buffer (headroom for WiFi/portal).
+    constexpr int BUF_LINES = 60;
     const size_t buf_bytes = (size_t)HAL_SCREEN_WIDTH * BUF_LINES * sizeof(uint16_t);
     void* buf1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA);
     void* buf2 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA);
