@@ -96,6 +96,13 @@ struct UpData {
     std::string err;
 };
 
+struct SpeedData {
+    int down_kbps = -1; // measured download throughput
+    bool running = false;
+    bool ok = false;
+    std::string err;
+};
+
 /**
  * @brief Process-wide background data service (singleton).
  *
@@ -119,6 +126,12 @@ public:
     NetData      net() const;
     MeetingData  meeting() const;
     UpData       uptime() const;
+    SpeedData    speed() const;
+
+    // Speed test is heavy (downloads a few MB), so it runs on demand rather than
+    // on a timer: an app calls this, the data thread runs one test ASAP, and the
+    // app polls speed() for the result.
+    void requestSpeedTest();
 
     DataService(const DataService&) = delete;
     DataService& operator=(const DataService&) = delete;
@@ -138,9 +151,11 @@ private:
     bool fetch_meeting(MeetingData& out);
     bool fetch_net(NetData& out);
     bool fetch_uptime(UpData& out);
+    int  fetch_speed_kbps(); // download throughput via Cloudflare, 0 = fail
 
     std::thread _thread;
     std::atomic<bool> _stop{false};
+    std::atomic<bool> _speed_req{false};
     mutable std::mutex _mtx;
 
     ClaudeData _claude;
@@ -152,6 +167,7 @@ private:
     NetData _net;
     MeetingData _meeting;
     UpData _uptime;
+    SpeedData _speed;
 };
 
 } // namespace appdata

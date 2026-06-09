@@ -12,4 +12,5 @@ public:
     int getLines(const std::string& url, const std::string& bearerToken, int timeoutSec,
                  const std::function<void(const char*)>& on_line) override;
     int status(const std::string& url, int timeoutSec = 8) override;
+    int measureDownload(const std::string& url, int timeoutSec, int maxBytes) override;
 };

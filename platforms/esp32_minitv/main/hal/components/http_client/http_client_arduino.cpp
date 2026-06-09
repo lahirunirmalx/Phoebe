@@ -6,6 +6,7 @@
 #include <Stream.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <cstdint>
 #include <cstdio>
 #include <functional>
 #include <string>
@@ -185,4 +186,56 @@ int HttpClientArduino::getLines(const std::string& url_in, const std::string& be
     }
     http.end();
     return code;
+}
+
+// Discards everything written to it, counting total bytes -- for speed tests.
+namespace {
+class CountSink : public Stream {
+public:
+    std::size_t total = 0;
+    size_t write(uint8_t) override { ++total; return 1; }
+    size_t write(const uint8_t*, size_t n) override { total += n; return n; }
+    int available() override { return 0; }
+    int read() override { return -1; }
+    int peek() override { return -1; }
+    void flush() override {}
+};
+} // namespace
+
+int HttpClientArduino::measureDownload(const std::string& url_in, int timeoutSec, int maxBytes)
+{
+    (void)maxBytes; // transfer is bounded by the URL's bytes=N parameter
+    if (WiFi.status() != WL_CONNECTED) return 0;
+
+    std::string url = url_in;
+    const bool is_https = url.rfind("https://", 0) == 0;
+    if (!is_https && url.rfind("http://", 0) != 0) url = "http://" + url;
+    if (is_https && ESP.getFreeHeap() < 50000) return 0;
+
+    HTTPClient http;
+    http.setTimeout(timeoutSec * 1000);
+    bool begun;
+    WiFiClientSecure secure;
+    WiFiClient client;
+    if (is_https) {
+        secure.setInsecure();
+        secure.setHandshakeTimeout(timeoutSec);
+        begun = http.begin(secure, url.c_str());
+    } else {
+        begun = http.begin(client, url.c_str());
+    }
+    if (!begun) return 0;
+    http.setUserAgent("Mozilla/5.0 (compatible; phoebe-minitv/1.0)");
+
+    if (http.GET() != 200) { http.end(); return 0; }
+
+    CountSink sink;
+    const uint32_t t0 = millis();
+    http.writeToStream(&sink); // streams the body into the counter, discarding it
+    const uint32_t dt = millis() - t0;
+    http.end();
+
+    if (dt == 0 || sink.total == 0) return 0;
+    // kbps = (bytes * 8 bits) / (dt ms)  ==  kilobits per second
+    return (int)((std::uint64_t)sink.total * 8 / dt);
 }

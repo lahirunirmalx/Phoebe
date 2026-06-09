@@ -19,6 +19,7 @@
 #include "app_forecast/app_forecast.h"
 #include "app_sunmoon/app_sunmoon.h"
 #include "app_network/app_network.h"
+#include "app_speedtest/app_speedtest.h"
 #include "app_uptime/app_uptime.h"
 #include "app_pet/app_pet.h"
 #include "app_saver/app_saver.h"
@@ -47,6 +48,7 @@ inline void on_install_apps()
     add(std::make_unique<AppForecast>(), "forecast");
     add(std::make_unique<AppSunMoon>(), "sunmoon");
     add(std::make_unique<AppNetwork>(), "network");
+    add(std::make_unique<AppSpeedTest>(), "speedtest");
     add(std::make_unique<AppUptime>(), "uptime");
     add(std::make_unique<AppPet>(), "pet");
     add(std::make_unique<AppSaver>(), "saver");

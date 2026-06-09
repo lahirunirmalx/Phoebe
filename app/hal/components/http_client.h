@@ -48,6 +48,14 @@ public:
     {
         return 0;
     }
+
+    // Speed test: download `url` (a bounded endpoint, e.g. Cloudflare
+    // __down?bytes=N), streaming and discarding the body, and return the
+    // measured download throughput in kbps (kilobits/sec). 0 = failure.
+    virtual int measureDownload(const std::string& /*url*/, int /*timeoutSec*/, int /*maxBytes*/)
+    {
+        return 0;
+    }
 };
 
 } // namespace hal_components

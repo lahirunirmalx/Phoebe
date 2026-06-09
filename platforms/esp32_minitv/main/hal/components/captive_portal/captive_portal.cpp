@@ -155,7 +155,7 @@ static void handle_root()
          "<input name='screens' placeholder='clock,meter,weather,...' value='" +
          html_escape(c.screenOrder) + "'>"
          "<small>keys: clock meter weather pomodoro world meeting currency aqi "
-         "forecast sunmoon network uptime pet saver life matrix</small>";
+         "forecast sunmoon network speedtest uptime pet saver life matrix</small>";
 
     h += "<div class='row'><input type='checkbox' name='mute' value='1'";
     if (c.mute) h += " checked";

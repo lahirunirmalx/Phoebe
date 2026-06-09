@@ -77,6 +77,9 @@ CurrencyData DataService::currency() const { std::lock_guard<std::mutex> l(_mtx)
 NetData      DataService::net()      const { std::lock_guard<std::mutex> l(_mtx); return _net; }
 MeetingData  DataService::meeting()  const { std::lock_guard<std::mutex> l(_mtx); return _meeting; }
 UpData       DataService::uptime()   const { std::lock_guard<std::mutex> l(_mtx); return _uptime; }
+SpeedData    DataService::speed()    const { std::lock_guard<std::mutex> l(_mtx); return _speed; }
+
+void DataService::requestSpeedTest() { _speed_req.store(true); }
 
 /* ---------------------------------- loop ---------------------------------- */
 
@@ -97,6 +100,19 @@ void DataService::loop()
         auto retry = [&](std::uint32_t& last, std::uint32_t period, bool ok) {
             if (!ok && period > 25) last = now - period + 20;
         };
+
+        // On-demand speed test (downloads a few MB) -- run ASAP when requested.
+        if (_speed_req.exchange(false)) {
+            { std::lock_guard<std::mutex> l(_mtx); _speed.running = true; _speed.err.clear(); }
+            const int kbps = fetch_speed_kbps();
+            {
+                std::lock_guard<std::mutex> l(_mtx);
+                _speed.running = false;
+                if (kbps > 0) { _speed.down_kbps = kbps; _speed.ok = true; }
+                else { _speed.ok = false; _speed.err = "failed"; }
+            }
+            mclog::tagInfo(TAG, "speed {}: {} kbps", kbps > 0 ? "ok" : "err", kbps);
+        }
 
         if (due(last_claude, POLL_CLAUDE_SEC)) {
             ClaudeData f;
@@ -430,6 +446,13 @@ bool DataService::fetch_uptime(UpData& out)
     out.count = n;
     out.ok = true;
     return true;
+}
+
+int DataService::fetch_speed_kbps()
+{
+    // Cloudflare's free, keyless speed endpoint returns exactly N bytes; we
+    // stream + discard them and measure throughput. 2 MB ~ a few seconds.
+    return HAL::Http().measureDownload("https://speed.cloudflare.com/__down?bytes=2000000", 20, 2000000);
 }
 
 } // namespace appdata
