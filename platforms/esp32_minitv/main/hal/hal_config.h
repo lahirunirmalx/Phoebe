@@ -19,7 +19,10 @@
 #define HAL_PIN_LCD_CS   15
 #define HAL_PIN_LCD_RST  (-1)   // no reset pin wired -> software reset only
 #define HAL_LCD_SPI_HOST  SPI2_HOST
-#define HAL_LCD_SPI_HZ   (20 * 1000 * 1000)   // 20 MHz (board does not work at 80 MHz)
+// 80 MHz: SCLK 14 / MOSI 13 are the SPI2 (HSPI) IO_MUX pins, so the driver can
+// clock at the ESP32 max for the fastest LVGL flush / highest FPS. If the panel
+// shows garbled/torn output, step down to 40 MHz (still 2x the old 20 MHz).
+#define HAL_LCD_SPI_HZ   (80 * 1000 * 1000)   // 80 MHz
 
 // ---- Backlight + panel power (both ACTIVE-LOW) ----------------------------
 #define HAL_PIN_BACKLIGHT 19    // LEDC PWM, active-low (drive low = on)
