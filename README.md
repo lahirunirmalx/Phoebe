@@ -85,12 +85,15 @@ The pin gesture commits on **release** (by hold duration), so cycling, pinning,
 and opening the portal all share the one pad without colliding — a portal hold
 never flips the pin on its way to 3 s.
 
-Apps in the cycle:
+Apps in the default cycle:
 
 **clock** (watch faces) → **Claude meter** (5h/7d rings) → **weather** →
 **pomodoro** → **world clock** → **next meeting** → **currency** (FX→LKR) →
 **AQI** → **3‑day forecast** → **sun & moon** → **network ping** → **uptime** →
-**pet** → **screensaver**.
+**pet** → **screensaver** → **Game of Life** → **Matrix rain**.
+
+The cycle is **configurable** from the captive portal — reorder the list or
+remove apps you don't want (see *First‑boot setup* below).
 
 The backlight also **pulses** on a Claude fetch / error / limit‑reached as an
 ambient notification while the screen is otherwise dark.
@@ -104,7 +107,9 @@ portal:
 2. Browse to `http://192.168.4.1`.
 3. Set: WiFi, timezone, watch face, widgets, **Claude base + bearer**, a
    **Sri Lanka weather city**, an optional **calendar `.ics` URL** (next
-   meeting), and up to **5 uptime URLs**.
+   meeting), up to **5 uptime URLs**, and the **Screens** list — an ordered,
+   comma‑separated set of app keys (`clock,meter,weather,...`): reorder to
+   change the cycle order, remove a key to hide that app, leave blank for all.
 4. Save — the device reboots configured. (Or **Cancel — back to clock** on the
    page, or **hold the pad 3 s**, to leave without changes.)
 
@@ -132,17 +137,28 @@ The clock app picks a face from the `watchFace` setting. Faces:
 - **`seg7`** — 7‑segment LCD look: four red digits + a blinking colon; unlit
   segments stay visible as dim red, like a real LCD.
 - **`vfd`** — VFD‑style 5×7 dot‑matrix in phosphor green on dark teal.
+- **`flip`** — split‑flap board: two `HH` / `MM` cards with a centre seam that
+  flap (drop‑in + fade) on each change.
 
 ## Architecture notes
 
-- **Dual‑core:** the UI (LVGL/Mooncake/touch) runs on APP_CPU; all networking
-  (Claude + weather + the extras) runs on PRO_CPU via a single serialized fetch
-  thread, so only one TLS connection is open at a time.
+- **Independent apps:** each screen is its own Mooncake `AppAbility` in its own
+  folder under `app/apps/app_*` (subclassing a small `ScreenApp` base in
+  `app/apps/utils/ui_common`). A **navigator** in `app_main` installs them all
+  (see `app_registry` / `app_installer`), opens one at a time, and drives the
+  whole gesture/cycle/pin/sleep flow.
+- **Shared data layer:** `app/apps/utils/data_service` is a singleton owning the
+  one background network thread, every fetcher, the cached snapshots, and the
+  ambient backlight pulse. Apps read live data through thread‑safe getters
+  instead of fetching themselves — so data keeps flowing regardless of which app
+  is open, and only one TLS connection is ever open at a time.
+- **Dual‑core:** the UI (LVGL/Mooncake/touch) runs on APP_CPU; the `DataService`
+  fetch thread runs on PRO_CPU.
 - **Memory:** mbedTLS dynamic buffers are enabled, large feeds are streamed
   (never buffered whole), and uptime/ping use a status‑only request that never
   downloads the page body — all to keep TLS off the heap‑exhaustion cliff.
-- **Single touch:** the GPIO32 pad drives an LVGL pointer indev plus
-  hold‑duration gesture detection (tap / hold‑to‑pin / ≥3 s long‑press).
+- **Single touch:** the navigator reads the GPIO32 pad directly and decides
+  tap / hold‑to‑pin / ≥3 s long‑press by hold duration on release.
 
 ## Desktop simulator (development)
 
