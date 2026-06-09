@@ -51,7 +51,8 @@ private:
     // "seg7" -> WF_Seg7 (7-segment LCD); "vfd" -> WF_VFD (5x7 dot-matrix).
     enum WatchFace { WF_Analog = 0, WF_Digital, WF_Animated, WF_Seg7, WF_VFD, WF_Flip };
 
-    std::vector<Screen> _screens;           // registered screens, cycled by tap
+    std::vector<Screen> _screens;           // all registered screens
+    std::vector<int> _cycle;                // indices into _screens, in tap-cycle order
     int _screen_idx = 0;                    // index of the currently shown screen
     WatchFace _watch_face = WF_Analog;
     std::uint32_t _last_tick_ms = 0;
@@ -61,9 +62,7 @@ private:
     bool _pinned = false;                   // current screen pinned: no sleep, no cycle
     bool _display_on = true;                // our view of the backlight state
 
-    // Background fetch -----------------------------------------------------
-    std::thread _fetch_thread;
-    std::atomic<bool> _fetch_stop{false};
+    // Claude usage snapshot (fetched by the unified _data_loop thread).
     std::mutex _snapshot_mutex;
 
     struct Snapshot {
@@ -144,9 +143,7 @@ private:
     lv_obj_t* _wx_cloud = nullptr;
     lv_obj_t* _wx_drops[3] = {nullptr, nullptr, nullptr};
 
-    // Background weather fetch (Open-Meteo)
-    std::thread _weather_thread;
-    std::atomic<bool> _weather_stop{false};
+    // Weather snapshot (Open-Meteo; fetched by the unified _data_loop thread).
     std::mutex _weather_mutex;
     struct WeatherSnapshot {
         float temp_c = -1000.0f;
@@ -255,6 +252,8 @@ private:
     void _register_screen(const char* name, lv_obj_t* container, std::function<void()> update,
                           std::function<void()> on_show = {});
     void _show_screen(int idx);
+    void _build_cycle();   // parse SysCfg().screenOrder -> _cycle (subset + order)
+    int  _cycle_pos() const;   // position of _screen_idx within _cycle (0 if absent)
     void _on_press();     // touch down: start the hold timer
     void _on_release();   // touch up: tap = cycle, hold = toggle pin, asleep = wake
     void _wake();         // turn backlight on, show first screen, unpin
@@ -305,15 +304,9 @@ private:
     void _build_weather_view();
     void _update_weather();
     void _set_weather_icon(int code);     // show/hide icon parts for a WMO code
-    void _start_weather_thread();
-    void _stop_weather_thread();
-    void _weather_loop();
     bool _weather_fetch_once(WeatherSnapshot& out);
     WatchFace _resolve_watch_face() const;
 
-    void _start_fetch_thread();
-    void _stop_fetch_thread();
-    void _fetch_loop();
     bool _fetch_once(Snapshot& out);
 
     static void _on_touch_event(lv_event_t* e);

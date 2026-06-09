@@ -68,8 +68,12 @@ hal_components::HttpClientBase::Response HttpClientArduino::get(const std::strin
     HTTPClient http;
     http.setTimeout(timeoutSec * 1000);
 
-    // Use the modern begin(client, url) form. A local exporter rarely has a CA
-    // the ESP trusts, so accept any cert on https.
+    // SECURITY: setInsecure() (below) skips TLS certificate validation for ALL
+    // https requests -- the Claude exporter and the public weather/AQI/currency
+    // APIs alike. A local exporter rarely has a CA the ESP trusts and this toy
+    // has no managed cert store, so we accept any cert. Tradeoff: those feeds are
+    // MITM-able; the bearer token still gates the Claude endpoint. To harden,
+    // pin per-host CA certs via secure.setCACert(...) selected on the URL host.
     // Local (not static) clients so concurrent fetches from different tasks
     // don't share one connection object. Only one TLS context is alive per call.
     bool begun;

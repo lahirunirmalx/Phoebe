@@ -6,6 +6,7 @@
  */
 #include "app_claudemeter.h"
 #include "hal/hal.h"
+#include "ics_recur.h"
 #include "weather_locations.h"
 #include <ArduinoJson.h>
 #include <cctype>
@@ -67,9 +68,18 @@ constexpr int MATRIX_ROWS = 17;
 constexpr int CLOCK_CANVAS_W = 150;
 constexpr int CLOCK_CANVAS_H = 150;
 
-// Poll cadence for /usage. M5Cardputer-UserDemo uses 5 minutes; mirror it.
-constexpr int FETCH_PERIOD_SEC = 300;
 constexpr int FETCH_TIMEOUT_SEC = 8;
+
+// Per-source poll cadences for the unified network thread (_data_loop), seconds.
+// All fetches are serialized on one thread, so these are best-effort intervals.
+constexpr std::uint32_t POLL_CLAUDE_SEC   = 180;
+constexpr std::uint32_t POLL_WEATHER_SEC  = 600;
+constexpr std::uint32_t POLL_DAILY_SEC    = 600;
+constexpr std::uint32_t POLL_AQI_SEC      = 900;
+constexpr std::uint32_t POLL_CURRENCY_SEC = 1800;
+constexpr std::uint32_t POLL_MEETING_SEC  = 300;
+constexpr std::uint32_t POLL_NET_SEC      = 90;
+constexpr std::uint32_t POLL_UPTIME_SEC   = 120;
 
 constexpr float WARN_THRESHOLD = 70.0f;
 constexpr float DANGER_THRESHOLD = 90.0f;
@@ -298,11 +308,7 @@ AppClaudeMeter::AppClaudeMeter()
 AppClaudeMeter::~AppClaudeMeter()
 {
     // Safety net: if onClose() didn't run (e.g. process killed mid-flight),
-    // make sure the fetch thread isn't joinable when std::thread is destroyed.
-    _fetch_stop.store(true);
-    if (_fetch_thread.joinable()) _fetch_thread.join();
-    _weather_stop.store(true);
-    if (_weather_thread.joinable()) _weather_thread.join();
+    // make sure the data thread isn't joinable when std::thread is destroyed.
     _data_stop.store(true);
     if (_data_thread.joinable()) _data_thread.join();
 }
@@ -365,8 +371,8 @@ void AppClaudeMeter::onRunning()
         if (_time_is_synced()) {
             _booting = false;
             _last_interaction_ms = now_ms;
-            _show_screen(0); // reveal the clock
-            mclog::tagInfo(getAppInfo().name, "time synced, showing clock");
+            _show_screen(_cycle.empty() ? 0 : _cycle[0]); // reveal the first screen in the cycle
+            mclog::tagInfo(getAppInfo().name, "time synced, showing first screen");
         }
         return;
     }
@@ -401,8 +407,6 @@ void AppClaudeMeter::onClose()
 {
     mclog::tagInfo(getAppInfo().name, "on close");
 
-    _stop_fetch_thread();
-    _stop_weather_thread();
     _stop_data_thread();
 
     if (_clock_anim_arc) {
@@ -499,6 +503,47 @@ void AppClaudeMeter::_build_ui()
     _register_screen("saver", _saver_container, [this] {});   // self-animating
     _register_screen("life", _life_container, [this] { _update_life(); });
     _register_screen("matrix", _matrix_container, [this] { _update_matrix(); });
+
+    _build_cycle();
+}
+
+// Parse SysCfg().screenOrder ("clock,meter,weather") into _cycle as indices into
+// _screens: listed screens cycle in that order, omitted ones are hidden. Tokens
+// are comma/space separated; unknown or duplicate keys are ignored. An empty or
+// fully-invalid config falls back to every screen in registration order.
+void AppClaudeMeter::_build_cycle()
+{
+    _cycle.clear();
+    const std::string& order = HAL::SysCfg().getConfig().screenOrder;
+    size_t i = 0;
+    while (i < order.size()) {
+        while (i < order.size() && (order[i] == ',' || order[i] == ' ' ||
+                                    order[i] == '\t' || order[i] == '\n' || order[i] == '\r')) ++i;
+        size_t j = i;
+        while (j < order.size() && order[j] != ',' && order[j] != ' ' &&
+               order[j] != '\t' && order[j] != '\n' && order[j] != '\r') ++j;
+        if (j > i) {
+            const std::string key = order.substr(i, j - i);
+            for (int s = 0; s < (int)_screens.size(); ++s) {
+                if (_screens[s].name == key) {
+                    bool dup = false;
+                    for (int c : _cycle) if (c == s) { dup = true; break; }
+                    if (!dup) _cycle.push_back(s);
+                    break;
+                }
+            }
+        }
+        i = j;
+    }
+    if (_cycle.empty())
+        for (int s = 0; s < (int)_screens.size(); ++s) _cycle.push_back(s);
+}
+
+int AppClaudeMeter::_cycle_pos() const
+{
+    for (int i = 0; i < (int)_cycle.size(); ++i)
+        if (_cycle[i] == _screen_idx) return i;
+    return 0;
 }
 
 void AppClaudeMeter::_build_boot_screen()
@@ -1386,46 +1431,6 @@ void AppClaudeMeter::_update_weather()
     }
 }
 
-void AppClaudeMeter::_start_weather_thread()
-{
-    if (_weather_thread.joinable()) return;
-    _weather_stop.store(false);
-    _weather_thread = std::thread([this] { _weather_loop(); });
-}
-
-void AppClaudeMeter::_stop_weather_thread()
-{
-    _weather_stop.store(true);
-    if (_weather_thread.joinable()) _weather_thread.join();
-}
-
-void AppClaudeMeter::_weather_loop()
-{
-    while (!_weather_stop.load()) {
-        WeatherSnapshot fresh;
-        bool ok = _weather_fetch_once(fresh);
-        {
-            std::lock_guard<std::mutex> lock(_weather_mutex);
-            if (ok) {
-                _weather = fresh;
-            } else {
-                _weather.ok = false;
-                _weather.err = fresh.err;
-            }
-        }
-        if (ok) {
-            mclog::tagInfo(getAppInfo().name, "weather ok: {:.0f}C code={}", fresh.temp_c, fresh.code);
-        } else {
-            mclog::tagWarn(getAppInfo().name, "weather err: {}", fresh.err);
-        }
-        // 15 min on success, retry every 20 s while erroring.
-        int wait_sec = ok ? 900 : 20;
-        for (int i = 0; i < wait_sec * 4 && !_weather_stop.load(); ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(250));
-        }
-    }
-}
-
 bool AppClaudeMeter::_weather_fetch_once(WeatherSnapshot& out)
 {
     const auto& loc = weather::find(HAL::SysCfg().getConfig().weatherCity);
@@ -1587,224 +1592,6 @@ void AppClaudeMeter::_update_world()
 /* --------------------- Next meeting / Currency / AQI ------------------- */
 
 namespace {
-// Portable struct-tm -> UTC epoch (newlib here has no timegm()).
-long tm_to_utc_epoch(int year, int mon0, int mday, int hh, int mm, int ss)
-{
-    static const int cum[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
-    long days = (long)(year - 1970) * 365 + (year - 1969) / 4 - (year - 1901) / 100 + (year - 1601) / 400;
-    days += cum[mon0 % 12];
-    if (mon0 > 1 && ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0)) days += 1;
-    days += mday - 1;
-    return ((days * 24 + hh) * 60 + mm) * 60 + ss;
-}
-
-// Parse an iCal DTSTART value to a UTC epoch.
-//   "20260607T093000Z"  -> UTC (trailing Z), used as-is.
-//   "20260607T093000"   -> floating / TZID local time. We don't parse VTIMEZONE,
-//                          so it's interpreted in the device's configured zone
-//                          (tz_offset_min) and converted to UTC -- correct for a
-//                          personal calendar, the common case here.
-//   "20260607"          -> all-day; treated as local midnight, same conversion.
-// Treating local times as UTC (the old behaviour) made events linger as
-// "upcoming" for the whole UTC offset after they had really started.
-long parse_ics_dt(const std::string& s, int tz_offset_min)
-{
-    if (s.size() < 8) return 0;
-    for (int i = 0; i < 8; ++i) if (!isdigit((unsigned char)s[i])) return 0;
-    int year = (s[0]-'0')*1000 + (s[1]-'0')*100 + (s[2]-'0')*10 + (s[3]-'0');
-    int mon0 = (s[4]-'0')*10 + (s[5]-'0') - 1;
-    int mday = (s[6]-'0')*10 + (s[7]-'0');
-    int hh = 0, mm = 0, ss = 0;
-    if (s.size() >= 15 && s[8] == 'T') {
-        hh = (s[9]-'0')*10 + (s[10]-'0');
-        mm = (s[11]-'0')*10 + (s[12]-'0');
-        ss = (s[13]-'0')*10 + (s[14]-'0');
-    }
-    long epoch = tm_to_utc_epoch(year, mon0, mday, hh, mm, ss);
-    // No 'Z' suffix means the value is wall-clock local, not UTC: UTC = local - offset.
-    const bool is_utc = s.find('Z') != std::string::npos;
-    if (!is_utc) epoch -= (long)tz_offset_min * 60;
-    return epoch;
-}
-
-// --- Recurring events (RRULE) --------------------------------------------
-//
-// All recurrence math runs in "local epoch" (seconds since 1970 in the device's
-// wall clock) so weekday/month-day land on the right local day. gmtime_r breaks
-// a local epoch into local fields (it interprets its argument as UTC, which IS
-// the local wall clock here), and tm_to_utc_epoch rebuilds one. The caller
-// converts to/from real UTC with the configured tz offset.
-//
-// Supported: FREQ=DAILY/WEEKLY/MONTHLY/YEARLY, INTERVAL, WEEKLY BYDAY, COUNT,
-// UNTIL, and EXDATE exclusions. Not handled (uncommon for a personal calendar):
-// MONTHLY/YEARLY BYDAY (e.g. "2nd Monday"), BYMONTHDAY lists, WKST != Monday.
-struct Recur {
-    enum Freq { NONE, DAILY, WEEKLY, MONTHLY, YEARLY };
-    Freq freq = NONE;
-    int interval = 1;
-    std::uint8_t byday = 0; // bit d set for weekday d (Mon=0 .. Sun=6)
-    int count = 0;          // 0 = unbounded
-};
-
-// "MO" / "2MO" / "-1FR" -> weekday bit index (Mon=0..Sun=6), or -1.
-int rrule_weekday_bit(const std::string& tok)
-{
-    if (tok.size() < 2) return -1;
-    const std::string d = tok.substr(tok.size() - 2); // strip any "2"/"−1" prefix
-    static const char* const names[7] = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"};
-    for (int i = 0; i < 7; ++i)
-        if (d == names[i]) return i;
-    return -1;
-}
-
-// Parse an RRULE value. `until_utc` returns the UNTIL instant as a UTC epoch (0
-// if absent); UNTIL per RFC 5545 is UTC, so parse_ics_dt reads its trailing Z.
-Recur parse_rrule(const std::string& s, long& until_utc, int tz_offset_min)
-{
-    Recur r;
-    until_utc = 0;
-    size_t i = 0;
-    while (i < s.size()) {
-        size_t e = s.find(';', i);
-        if (e == std::string::npos) e = s.size();
-        const std::string kv = s.substr(i, e - i);
-        const size_t eq = kv.find('=');
-        if (eq != std::string::npos) {
-            const std::string k = kv.substr(0, eq), v = kv.substr(eq + 1);
-            if (k == "FREQ") {
-                if (v == "DAILY") r.freq = Recur::DAILY;
-                else if (v == "WEEKLY") r.freq = Recur::WEEKLY;
-                else if (v == "MONTHLY") r.freq = Recur::MONTHLY;
-                else if (v == "YEARLY") r.freq = Recur::YEARLY;
-            } else if (k == "INTERVAL") {
-                r.interval = atoi(v.c_str());
-                if (r.interval < 1) r.interval = 1;
-            } else if (k == "COUNT") {
-                r.count = atoi(v.c_str());
-            } else if (k == "UNTIL") {
-                until_utc = parse_ics_dt(v, tz_offset_min);
-            } else if (k == "BYDAY") {
-                size_t j = 0;
-                while (j < v.size()) {
-                    size_t c = v.find(',', j);
-                    if (c == std::string::npos) c = v.size();
-                    const int b = rrule_weekday_bit(v.substr(j, c - j));
-                    if (b >= 0) r.byday |= (std::uint8_t)(1 << b);
-                    j = c + 1;
-                }
-            }
-        }
-        i = e + 1;
-    }
-    return r;
-}
-
-bool epoch_excluded(long occ, const std::vector<long>& ex)
-{
-    for (long e : ex) if (e == occ) return true;
-    return false;
-}
-
-// First occurrence (local epoch) at or after now_local, honoring INTERVAL /
-// BYDAY / COUNT / UNTIL / EXDATE. Returns 0 if the series has no such occurrence.
-long next_occurrence_local(long start_local, long now_local, const Recur& r,
-                           long until_local, const std::vector<long>& ex)
-{
-    if (r.freq == Recur::NONE) return start_local;
-
-    const long DAY = 86400;
-    const int GUARD = 800;
-    const long INTV = r.interval > 0 ? r.interval : 1;
-
-    struct tm st;
-    { time_t t = (time_t)start_local; gmtime_r(&t, &st); }
-    const long tod = (long)st.tm_hour * 3600 + st.tm_min * 60 + st.tm_sec;
-
-    auto valid_day = [](int y, int mon0, int day) -> bool {
-        static const int md[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-        int dim = md[mon0 % 12];
-        if (mon0 == 1 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) dim = 29;
-        return day >= 1 && day <= dim;
-    };
-
-    // Fixed-length periods (daily, or weekly with no BYDAY): closed-form jump
-    // to the first index >= now, then step past any EXDATE holes.
-    if (r.freq == Recur::DAILY || (r.freq == Recur::WEEKLY && r.byday == 0)) {
-        const long period = (r.freq == Recur::DAILY ? 1 : 7) * INTV * DAY;
-        long idx = (start_local < now_local)
-                       ? (now_local - start_local + period - 1) / period : 0;
-        for (int g = 0; g < GUARD; ++g, ++idx) {
-            if (r.count > 0 && idx > r.count - 1) return 0;
-            const long occ = start_local + idx * period;
-            if (until_local > 0 && occ > until_local) return 0;
-            if (occ >= now_local && !epoch_excluded(occ, ex)) return occ;
-        }
-        return 0;
-    }
-
-    if (r.freq == Recur::WEEKLY) { // BYDAY set
-        const int sdow = (st.tm_wday + 6) % 7;             // Mon=0..Sun=6
-        const long startMon = (start_local - (start_local % DAY)) - (long)sdow * DAY;
-        struct tm nt;
-        { time_t t = (time_t)now_local; gmtime_r(&t, &nt); }
-        const int ndow = (nt.tm_wday + 6) % 7;
-        const long nowMon = (now_local - (now_local % DAY)) - (long)ndow * DAY;
-        long wk = (nowMon - startMon) / (7 * DAY);
-        if (wk < 0) wk = 0;
-        wk -= wk % INTV;
-        int g = 0;
-        for (long w = wk; g < GUARD; w += INTV) {
-            for (int d = 0; d < 7 && g < GUARD; ++d, ++g) {
-                if (!(r.byday & (1 << d))) continue;
-                const long occ = startMon + w * 7 * DAY + (long)d * DAY + tod;
-                if (occ < start_local) continue;
-                if (until_local > 0 && occ > until_local) return 0;
-                if (occ >= now_local && !epoch_excluded(occ, ex)) return occ;
-            }
-        }
-        return 0;
-    }
-
-    // Calendar-stepped periods (monthly by month-day, yearly by date).
-    const int sy = st.tm_year + 1900, smon0 = st.tm_mon, sday = st.tm_mday;
-    struct tm nt;
-    { time_t t = (time_t)now_local; gmtime_r(&t, &nt); }
-
-    if (r.freq == Recur::MONTHLY) {
-        const long sm = (long)sy * 12 + smon0;
-        long k = ((long)(nt.tm_year + 1900) * 12 + nt.tm_mon) - sm;
-        if (k < 0) k = 0;
-        k -= k % INTV;
-        for (int g = 0; g < GUARD; ++g, k += INTV) {
-            const long m = sm + k;
-            const int cy = (int)(m / 12), cmon0 = (int)(m % 12);
-            if (!valid_day(cy, cmon0, sday)) continue; // e.g. day 31 in a short month
-            const long occ = tm_to_utc_epoch(cy, cmon0, sday, st.tm_hour, st.tm_min, st.tm_sec);
-            if (r.count > 0 && k / INTV > r.count - 1) return 0;
-            if (until_local > 0 && occ > until_local) return 0;
-            if (occ >= now_local && occ >= start_local && !epoch_excluded(occ, ex)) return occ;
-        }
-        return 0;
-    }
-
-    if (r.freq == Recur::YEARLY) {
-        long k = (long)(nt.tm_year + 1900) - sy;
-        if (k < 0) k = 0;
-        k -= k % INTV;
-        for (int g = 0; g < GUARD; ++g, k += INTV) {
-            const int cy = sy + (int)k;
-            if (!valid_day(cy, smon0, sday)) continue; // Feb 29 on a common year
-            const long occ = tm_to_utc_epoch(cy, smon0, sday, st.tm_hour, st.tm_min, st.tm_sec);
-            if (r.count > 0 && k / INTV > r.count - 1) return 0;
-            if (until_local > 0 && occ > until_local) return 0;
-            if (occ >= now_local && occ >= start_local && !epoch_excluded(occ, ex)) return occ;
-        }
-        return 0;
-    }
-
-    return 0;
-}
-
 lv_color_t aqi_color(int aqi)
 {
     if (aqi < 0) return COLOR_LABEL_DIM;
@@ -2048,7 +1835,7 @@ void AppClaudeMeter::_data_loop()
         };
 
         // --- Claude usage (drives the meter + backlight notifications) -----
-        if (due(last_claude, 180)) {
+        if (due(last_claude, POLL_CLAUDE_SEC)) {
             Snapshot f;
             bool ok = _fetch_once(f);
             {
@@ -2061,58 +1848,62 @@ void AppClaudeMeter::_data_loop()
                                    (f.pct_seven_day >= DANGER_THRESHOLD);
                 HAL::Backlight().notify((limit && !prev_limit) ? BL::Notify_LimitReached : BL::Notify_FetchOk);
                 prev_limit = limit; prev_err = false;
+                mclog::tagInfo(getAppInfo().name, "claude ok: 5h={:.1f}% 7d={:.1f}%",
+                               f.pct_five_hour, f.pct_seven_day);
             } else {
                 if (!prev_err) HAL::Backlight().notify(BL::Notify_FetchErr);
                 prev_err = true; prev_limit = false;
+                mclog::tagWarn(getAppInfo().name, "claude err: {}", f.last_err);
             }
-            retry(last_claude, 180, ok);
+            retry(last_claude, POLL_CLAUDE_SEC, ok);
         }
 
-        if (due(last_weather, 600)) {
+        if (due(last_weather, POLL_WEATHER_SEC)) {
             WeatherSnapshot w; bool ok = _weather_fetch_once(w);
             { std::lock_guard<std::mutex> lock(_weather_mutex);
               if (ok) _weather = w; else { _weather.ok = false; _weather.err = w.err; } }
-            retry(last_weather, 600, ok);
+            mclog::tagInfo(getAppInfo().name, "weather {}", ok ? "ok" : w.err);
+            retry(last_weather, POLL_WEATHER_SEC, ok);
         }
-        if (due(last_daily, 600)) {
+        if (due(last_daily, POLL_DAILY_SEC)) {
             ForecastSnap fc; SunSnap sun; bool ok = _fetch_daily(fc, sun);
             { std::lock_guard<std::mutex> lock(_data_mutex);
               if (ok) { _fc = fc; _sun = sun; }
               else { _fc.ok = false; _fc.err = fc.err; _sun.ok = false; _sun.err = sun.err; } }
             mclog::tagInfo(getAppInfo().name, "daily {}", ok ? "ok" : fc.err);
-            retry(last_daily, 600, ok);
+            retry(last_daily, POLL_DAILY_SEC, ok);
         }
-        if (due(last_aqi, 900)) {
+        if (due(last_aqi, POLL_AQI_SEC)) {
             AqiSnap a; bool ok = _fetch_aqi(a);
             { std::lock_guard<std::mutex> lock(_data_mutex);
               if (ok) _aqi = a; else { _aqi.ok = false; _aqi.err = a.err; } }
             mclog::tagInfo(getAppInfo().name, "aqi {}", ok ? "ok" : a.err);
-            retry(last_aqi, 900, ok);
+            retry(last_aqi, POLL_AQI_SEC, ok);
         }
-        if (due(last_cur, 1800)) {
+        if (due(last_cur, POLL_CURRENCY_SEC)) {
             CurrencySnap c; bool ok = _fetch_currency(c);
             { std::lock_guard<std::mutex> lock(_data_mutex);
               if (ok) _cur = c; else { _cur.ok = false; _cur.err = c.err; } }
             mclog::tagInfo(getAppInfo().name, "currency {}", ok ? "ok" : c.err);
-            retry(last_cur, 1800, ok);
+            retry(last_cur, POLL_CURRENCY_SEC, ok);
         }
-        if (due(last_meet, 300)) {
+        if (due(last_meet, POLL_MEETING_SEC)) {
             MeetingSnap m; bool ok = _fetch_meeting(m);
             { std::lock_guard<std::mutex> lock(_data_mutex);
               if (ok) _meet = m; else { _meet.ok = false; _meet.err = m.err; } }
-            retry(last_meet, 300, ok);
+            retry(last_meet, POLL_MEETING_SEC, ok);
         }
-        if (due(last_net, 90)) {
+        if (due(last_net, POLL_NET_SEC)) {
             NetSnap n; bool ok = _fetch_net(n);
             { std::lock_guard<std::mutex> lock(_data_mutex);
               if (ok) _net = n; else { _net.ok = false; _net.err = n.err; } }
-            retry(last_net, 90, ok);
+            retry(last_net, POLL_NET_SEC, ok);
         }
-        if (due(last_up, 120)) {
+        if (due(last_up, POLL_UPTIME_SEC)) {
             UpSnap u; bool ok = _fetch_uptime(u);
             { std::lock_guard<std::mutex> lock(_data_mutex);
               if (ok) _up = u; else { _up.ok = false; _up.err = u.err; } }
-            retry(last_up, 120, ok);
+            retry(last_up, POLL_UPTIME_SEC, ok);
         }
 
         first = false;
@@ -2141,16 +1932,16 @@ bool AppClaudeMeter::_fetch_meeting(MeetingSnap& out)
             in_event = true;
             cur_summary.clear(); cur_dt.clear(); cur_rrule.clear(); cur_exdates.clear();
         } else if (strncmp(line, "END:VEVENT", 10) == 0) {
-            const long st_utc = parse_ics_dt(cur_dt, tz);
+            const long st_utc = ics::parse_ics_dt(cur_dt, tz);
             long cand = 0;
             if (st_utc != 0) {
                 if (cur_rrule.empty()) {
                     cand = (st_utc >= now) ? st_utc : 0; // single event
                 } else {
                     long until_utc = 0;
-                    const Recur r = parse_rrule(cur_rrule, until_utc, tz);
+                    const ics::Recur r = ics::parse_rrule(cur_rrule, until_utc, tz);
                     const long until_local = until_utc ? until_utc + (long)tz * 60 : 0;
-                    const long occ_local = next_occurrence_local(
+                    const long occ_local = ics::next_occurrence_local(
                         st_utc + (long)tz * 60, now_local, r, until_local, cur_exdates);
                     cand = occ_local ? occ_local - (long)tz * 60 : 0; // back to UTC
                 }
@@ -2178,7 +1969,7 @@ bool AppClaudeMeter::_fetch_meeting(MeetingSnap& out)
                     while (j < v.size()) {
                         size_t k = v.find(',', j);
                         if (k == std::string::npos) k = v.size();
-                        const long e = parse_ics_dt(v.substr(j, k - j), tz);
+                        const long e = ics::parse_ics_dt(v.substr(j, k - j), tz);
                         if (e != 0) cur_exdates.push_back(e + (long)tz * 60); // local epoch
                         j = k + 1;
                     }
@@ -2501,7 +2292,7 @@ bool AppClaudeMeter::_fetch_daily(ForecastSnap& fc, SunSnap& sun)
             int y = (date[0]-'0')*1000 + (date[1]-'0')*100 + (date[2]-'0')*10 + (date[3]-'0');
             int mo = (date[5]-'0')*10 + (date[6]-'0') - 1;
             int da = (date[8]-'0')*10 + (date[9]-'0');
-            long days = tm_to_utc_epoch(y, mo, da, 0, 0, 0) / 86400;
+            long days = ics::tm_to_utc_epoch(y, mo, da, 0, 0, 0) / 86400;
             fc.d[i].wday = (int)(((days % 7) + 4 + 7) % 7); // 1970-01-01 = Thursday(4)
         }
     }
@@ -2877,7 +2668,7 @@ void AppClaudeMeter::_wake()
     _pinned = false;
     if (_pin_border) lv_obj_add_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
     HAL::Backlight().on();
-    _show_screen(0); // wake back to the first screen (clock)
+    _show_screen(_cycle.empty() ? 0 : _cycle[0]); // wake back to the first screen in the cycle
 }
 
 void AppClaudeMeter::_on_press()
@@ -2927,7 +2718,8 @@ void AppClaudeMeter::_on_release()
         _pinned = false;
         if (_pin_border) lv_obj_add_flag(_pin_border, LV_OBJ_FLAG_HIDDEN);
         if (!_screens.empty()) {
-            _show_screen((_screen_idx + 1) % (int)_screens.size());
+            if (!_cycle.empty())
+                _show_screen(_cycle[(_cycle_pos() + 1) % (int)_cycle.size()]);
         }
     }
 }
@@ -2950,75 +2742,6 @@ void AppClaudeMeter::_on_touch_event(lv_event_t* e)
 }
 
 /* ------------------------------ HTTP fetch ------------------------------ */
-
-void AppClaudeMeter::_start_fetch_thread()
-{
-    if (_fetch_thread.joinable()) return;
-    _fetch_stop.store(false);
-    _fetch_thread = std::thread([this] { _fetch_loop(); });
-}
-
-void AppClaudeMeter::_stop_fetch_thread()
-{
-    _fetch_stop.store(true);
-    if (_fetch_thread.joinable()) _fetch_thread.join();
-}
-
-void AppClaudeMeter::_fetch_loop()
-{
-    using BL = hal_components::BacklightBase;
-    bool prev_err = false;     // was the last poll an error? (pulse only on entry)
-    bool prev_limit = false;   // was usage already over the danger line?
-
-    // First-fetch attempt on startup, then poll every FETCH_PERIOD_SEC.
-    while (!_fetch_stop.load()) {
-        Snapshot fresh;
-        bool ok = _fetch_once(fresh);
-
-        {
-            std::lock_guard<std::mutex> lock(_snapshot_mutex);
-            if (ok) {
-                _snapshot = fresh;
-            } else {
-                _snapshot.state = Fetch_Err;
-                _snapshot.last_err = fresh.last_err;
-            }
-        }
-
-        // Backlight notifications (no-op on platforms without a backlight).
-        // Success pulses on every poll; "limit reached" supersedes it when
-        // usage crosses the danger line; errors pulse once per error episode.
-        if (ok) {
-            const bool limit = (fresh.pct_five_hour >= DANGER_THRESHOLD) ||
-                               (fresh.pct_seven_day >= DANGER_THRESHOLD);
-            if (limit && !prev_limit) {
-                HAL::Backlight().notify(BL::Notify_LimitReached);
-            } else {
-                HAL::Backlight().notify(BL::Notify_FetchOk);
-            }
-            prev_limit = limit;
-            prev_err = false;
-        } else {
-            if (!prev_err) HAL::Backlight().notify(BL::Notify_FetchErr);
-            prev_err = true;
-            prev_limit = false;
-        }
-
-        if (ok) {
-            mclog::tagInfo(getAppInfo().name, "fetch ok: 5h={:.1f}% 7d={:.1f}%",
-                           fresh.pct_five_hour, fresh.pct_seven_day);
-        } else {
-            mclog::tagWarn(getAppInfo().name, "fetch err: {}", fresh.last_err);
-        }
-
-        // Back off 5 minutes after a good fetch, but retry every 5 seconds
-        // while we're erroring (typically waiting on WiFi to associate).
-        int wait_sec = ok ? FETCH_PERIOD_SEC : 5;
-        for (int i = 0; i < wait_sec * 4 && !_fetch_stop.load(); ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(250));
-        }
-    }
-}
 
 bool AppClaudeMeter::_fetch_once(Snapshot& out)
 {

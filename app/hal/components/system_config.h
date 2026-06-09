@@ -40,6 +40,11 @@ public:
         // Up to 5 URLs (whitespace/comma separated) for the uptime monitor.
         std::string uptimeUrls;
 
+        // Screen rotation: ordered, comma-separated screen keys (e.g.
+        // "clock,meter,weather"). Listed screens cycle in that order; any key
+        // omitted is hidden. Empty -> all screens in their default order.
+        std::string screenOrder;
+
         // Claude usage endpoint (consumed by AppClaudeMeter).
         // base: e.g. "http://127.0.0.1:7878"
         // bearer: opaque API token sent as "Authorization: Bearer <token>"

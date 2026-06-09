@@ -149,6 +149,14 @@ static void handle_root()
          "<input name='urls' placeholder='https://a.com https://b.com' value='" +
          html_escape(c.uptimeUrls) + "'>";
 
+    // Screen rotation: ordered, comma-separated keys. Reorder to change the cycle
+    // order; delete a key to hide that screen. Empty = all, default order.
+    h += "<label>Screens (ordered; remove to hide, reorder to change)</label>"
+         "<input name='screens' placeholder='clock,meter,weather,...' value='" +
+         html_escape(c.screenOrder) + "'>"
+         "<small>keys: clock meter weather pomodoro world meeting currency aqi "
+         "forecast sunmoon network uptime pet saver life matrix</small>";
+
     h += "<div class='row'><input type='checkbox' name='mute' value='1'";
     if (c.mute) h += " checked";
     h += "><label style='margin:0'>Mute</label></div>";
@@ -182,6 +190,7 @@ static void handle_save()
     if (server.hasArg("city")) c.weatherCity = std::string(server.arg("city").c_str());
     if (server.hasArg("ics")) c.icsUrl = std::string(server.arg("ics").c_str());
     if (server.hasArg("urls")) c.uptimeUrls = std::string(server.arg("urls").c_str());
+    if (server.hasArg("screens")) c.screenOrder = std::string(server.arg("screens").c_str());
     c.mute = server.hasArg("mute");
     c.hapticFeedback = server.hasArg("haptic");
 
